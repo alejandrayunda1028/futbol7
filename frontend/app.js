@@ -9,9 +9,9 @@ const nav = [
   ["ajustes", "Ajustes", "fa-gear"]
 ];
 
-const slots = ["ARQ", "DEF I", "DEF D", "MED I", "MED D", "EXT", "DEL"];
-const homePos = [[50,85],[20,60],[80,60],[30,35],[70,35],[20,15],[50,5]];
-const awayPos = [[50,15],[20,40],[80,40],[30,65],[70,65],[80,85],[50,95]];
+const slots = ["ARQ", "DEF I", "DEF C", "DEF D", "MED I", "MED D", "DEL"];
+const homePos = [[50,90],[20,70],[50,70],[80,70],[35,45],[65,45],[50,20]];
+const awayPos = [[50,10],[80,30],[50,30],[20,30],[65,55],[35,55],[50,80]];
 
 let socket;
 let state = {
@@ -91,8 +91,9 @@ function initSocket() {
     shell();
   });
 
-  socket.on("data_changed", (data) => {
-    load(false);
+  socket.on("data_changed", async (data) => {
+    await load(false);
+    render();
   });
 }
 
@@ -449,24 +450,30 @@ function partido(){
   <section class="panel glass" style="margin-top:24px"><h2>Historial de Partidos</h2><div class="item-list">${state.matches.map(matchItem).join("")}</div></section>`;
 }
 function lineupSelectors(side, selected=[], availIds=[], canEdit){
-  // Filter players by availability, unless it's an admin who didn't select any (in which case, show all for legacy support, or strict logic)
   const list = state.players.filter(p => availIds.includes(p.id));
-  const playerOptions = list.map(p=>`<option value="${p.id}">#${p.number} ${esc(p.name)} (⭐${p.rating})</option>`).join("");
   
   return slots.map((label,i)=>{
     const selVal = selected[i];
-    // We must ensure the selected player appears in the dropdown even if suddenly marked unavailable, 
-    // to prevent losing them accidentally when editing.
     let extraOpt = "";
     if (selVal && !availIds.includes(selVal)) {
       const p = player(selVal);
       if(p) extraOpt = `<option value="${p.id}">#${p.number} ${esc(p.name)} (No disp.)</option>`;
     }
-    return `<label>${label}<select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'}>
-      <option value="">Sin asignar</option>
-      ${extraOpt}
-      ${list.map(p=>`<option value="${p.id}" ${Number(selVal)===Number(p.id)?"selected":""}>#${p.number} ${esc(p.name)} (⭐${p.rating})</option>`).join("")}
-    </select></label>`;
+    const p = player(selVal);
+    const photoUrl = p ? (p.photo_path || p.poster_path) : null;
+    const photoHtml = photoUrl ? `<img src="${esc(photoUrl)}" style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid var(--primary); flex-shrink:0;">` : `<div style="width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:center; border:1px dashed var(--border); flex-shrink:0;"><i class="fa-solid fa-user" style="opacity:0.5"></i></div>`;
+    
+    return `<label style="display:flex; flex-direction:row; align-items:center; gap:12px; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:12px; margin-bottom:0;">
+      ${photoHtml}
+      <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+        <span style="font-size:0.8rem; font-weight:700; color:var(--muted)">${label}</span>
+        <select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'} style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
+          <option value="">Sin asignar</option>
+          ${extraOpt}
+          ${list.map(pl=>`<option value="${pl.id}" ${Number(selVal)===Number(pl.id)?"selected":""}>#${pl.number} ${esc(pl.name)} (⭐${pl.rating})</option>`).join("")}
+        </select>
+      </div>
+    </label>`;
   }).join("");
 }
 function getMatchPayload(){
@@ -519,8 +526,10 @@ function pitch(lineup, coords, side){
   return coords.map((xy,i)=>{
     const p = player(lineup?.[i]);
     if(p) {
-      return `<div class="player-dot" style="left:${xy[0]}%;top:${xy[1]}%; border-color:${t.p}; color:${t.p};">
-        ${esc(p.number)}
+      const bg = p.photo_path || p.poster_path;
+      const bgStyle = bg ? `background-image:url('${esc(bg)}'); background-size:cover; background-position:center; color:transparent; border-color:${t.p};` : `border-color:${t.p}; color:${t.p};`;
+      return `<div class="player-dot" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle}">
+        ${bg ? '' : esc(p.number)}
         <div class="player-label" style="background:${t.p}; color:${contrast(t.p)}">${esc(p.nickname || p.name.split(" ")[0])}</div>
       </div>`;
     } else {

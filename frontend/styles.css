@@ -97,12 +97,12 @@ body.theme-white .statline span { background: rgba(0,0,0,0.1); color: #0f172a; }
 
 /* Toast & Connection Status */
 #toast {
-  position: fixed; top: 20px; right: -300px;
+  position: fixed; top: 20px; right: -500px;
   background: var(--bg-panel-solid);
   color: var(--text); padding: 12px 24px;
   border-radius: 8px; border-left: 4px solid var(--primary);
   box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 9999;
 }
 #toast.show { right: 20px; }
