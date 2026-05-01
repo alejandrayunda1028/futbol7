@@ -74,7 +74,6 @@ body.theme-white .item-row:hover { background: rgba(0,0,0,0.06); }
 body.theme-white .player-card { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.05); }
 body.theme-white .player-card:hover { background: rgba(0,0,0,0.06); }
 body.theme-white .statline span { background: rgba(0,0,0,0.1); color: #0f172a; }
-}
 
 /* Utilities */
 .hidden { display: none !important; }

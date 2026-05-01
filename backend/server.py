@@ -678,7 +678,7 @@ def update_settings():
     conn = connect()
     s = conn.execute("SELECT * FROM settings WHERE id=1").fetchone()
     if user["role"] != "admin":
-        allowed = {"app_name", "home_team_name","away_team_name","home_primary","home_secondary","away_primary","away_secondary","next_match_title","venue","schedule","captain_home_id","captain_away_id","app_theme"}
+        allowed = {"app_name", "home_team_name","away_team_name","home_primary","home_secondary","away_primary","away_secondary","next_match_title","venue","schedule","captain_home_id","captain_away_id","app_theme","app_bg_color"}
         body = {k:v for k,v in body.items() if k in allowed}
     s.update(body)
     
@@ -687,10 +687,14 @@ def update_settings():
         conn.execute("ALTER TABLE settings ADD COLUMN app_theme TEXT DEFAULT 'dark'")
     except Exception:
         pass
+    try:
+        conn.execute("ALTER TABLE settings ADD COLUMN app_bg_color TEXT DEFAULT ''")
+    except Exception:
+        pass
 
     conn.execute('''UPDATE settings SET app_name=?, home_team_name=?, away_team_name=?, home_primary=?, home_secondary=?,
-    away_primary=?, away_secondary=?, next_match_title=?, venue=?, schedule=?, live_enabled=?, live_url=?, captain_home_id=?, captain_away_id=?, app_theme=? WHERE id=1''',
-    (s.get("app_name",""), s["home_team_name"], s["away_team_name"], s["home_primary"], s["home_secondary"], s["away_primary"], s["away_secondary"], s["next_match_title"], s["venue"], s["schedule"], safe_int(s.get("live_enabled"),0), s.get("live_url",""), safe_int(s.get("captain_home_id"),0) or None, safe_int(s.get("captain_away_id"),0) or None, s.get("app_theme", "dark")))
+    away_primary=?, away_secondary=?, next_match_title=?, venue=?, schedule=?, live_enabled=?, live_url=?, captain_home_id=?, captain_away_id=?, app_theme=?, app_bg_color=? WHERE id=1''',
+    (s.get("app_name",""), s["home_team_name"], s["away_team_name"], s["home_primary"], s["home_secondary"], s["away_primary"], s["away_secondary"], s["next_match_title"], s["venue"], s["schedule"], safe_int(s.get("live_enabled"),0), s.get("live_url",""), safe_int(s.get("captain_home_id"),0) or None, safe_int(s.get("captain_away_id"),0) or None, s.get("app_theme", "dark"), s.get("app_bg_color", "")))
     conn.commit(); row = conn.execute("SELECT * FROM settings WHERE id=1").fetchone(); conn.close()
     socketio.emit("settings_updated", row)
     return jsonify(row)

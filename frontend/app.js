@@ -99,6 +99,14 @@ function initSocket() {
 function applyTheme() {
   const t = state.settings?.app_theme || 'dark';
   document.body.className = `theme-${t}`;
+  
+  if (state.settings?.app_bg_color) {
+    document.body.style.backgroundColor = state.settings.app_bg_color;
+    document.body.style.backgroundImage = 'none'; // Overrides theme gradient
+  } else {
+    document.body.style.backgroundColor = '';
+    document.body.style.backgroundImage = '';
+  }
 }
 
 $("#loginForm").addEventListener("submit", async (e)=>{
@@ -571,6 +579,12 @@ function ajustes(){
             <option value="white" ${s.app_theme==='white'?'selected':''}>Blanco Luminoso</option>
           </select>
         </label>
+        <label class="full">Fondo Personalizado (Sobrescribe el Tema)
+          <div style="display:flex; gap:12px">
+            <input type="color" name="app_bg_color" value="${esc(s.app_bg_color||'#000000')}" style="height:48px; padding:4px; width:60px" ${isAdmin?'':'disabled'}>
+            <button type="button" class="btn ghost" onclick="document.getElementsByName('app_bg_color')[0].value='#000000'; document.getElementsByName('app_bg_color')[0].dataset.cleared='1'" ${isAdmin?'':'disabled'}>Borrar fondo personalizado</button>
+          </div>
+        </label>
 
         <label class="full">Nombre de la App<input name="app_name" value="${esc(s.app_name)}" ${isAdmin?'':'readonly'}></label>
         <label>Equipo Local<input name="home_team_name" value="${esc(s.home_team_name)}"></label>
@@ -647,6 +661,12 @@ async function saveSettings(e){
     if(!fd.has('captain_home_id')) fd.append('captain_home_id', e.currentTarget.captain_home_id.value);
     if(!fd.has('captain_away_id')) fd.append('captain_away_id', e.currentTarget.captain_away_id.value);
     if(!fd.has('app_theme')) fd.append('app_theme', e.currentTarget.app_theme.value);
+    
+    // Clear bg color if user clicked "Borrar"
+    if (e.currentTarget.app_bg_color.dataset.cleared === '1') {
+      fd.set('app_bg_color', '');
+      e.currentTarget.app_bg_color.dataset.cleared = '0';
+    }
     
     await api("/api/settings",{method:"POST",body:JSON.stringify(Object.fromEntries(fd.entries()))});
     toast("Ajustes guardados. Actualizando en tiempo real..."); 
