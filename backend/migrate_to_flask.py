@@ -1,0 +1,402 @@
+import sys
+
+with open("backend/old_server.py", "r", encoding="utf-8") as f:
+    old_content = f.read()
+
+# Extract the header and image functions
+lines = old_content.split("\n")
+image_utils = []
+in_utils = False
+for line in lines:
+    if line.startswith("def color_to_rgb"):
+        in_utils = True
+    if line.startswith("class Handler("):
+        in_utils = False
+        break
+    if in_utils:
+        image_utils.append(line)
+
+utils_code = "\n".join(image_utils)
+
+flask_code = """import json
+import mimetypes
+import os
+import secrets
+import sys
+import urllib.parse
+from pathlib import Path
+
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
+from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask_socketio import SocketIO, emit
+from werkzeug.utils import secure_filename
+
+from app.db import UPLOAD_DIR, connect, init_db, parse_json_list
+
+ROOT = Path(__file__).resolve().parents[1]
+FRONTEND = ROOT / "frontend"
+TOKENS = {}
+ALLOWED_IMAGES = {".jpg", ".jpeg", ".png", ".webp"}
+
+app = Flask(__name__, static_folder=str(FRONTEND))
+app.config['SECRET_KEY'] = secrets.token_hex(24)
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+def safe_int(v, default=0):
+    try:
+        return int(v if v not in (None, "") else default)
+    except Exception:
+        return default
+
+def safe_float(v, default=0):
+    try:
+        return float(v if v not in (None, "") else default)
+    except Exception:
+        return default
+
+""" + utils_code + """
+
+def get_user():
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+    return TOKENS.get(token)
+
+def require_user():
+    user = get_user()
+    if not user:
+        return None, jsonify({"error": "No autorizado"}), 401
+    return user, None, None
+
+def require_roles(roles):
+    user, err_resp, err_code = require_user()
+    if not user:
+        return None, err_resp, err_code
+    if user["role"] not in roles:
+        return None, jsonify({"error": "Sin permisos"}), 403
+    return user, None, None
+
+@app.route("/", defaults={"path": "index.html"})
+@app.route("/<path:path>")
+def serve_static(path):
+    if path.startswith("uploads/"):
+        filename = path.replace("uploads/", "")
+        return send_from_directory(str(UPLOAD_DIR), filename)
+    if (FRONTEND / path).exists():
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, "index.html")
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    body = request.get_json() or {}
+    conn = connect()
+    user = conn.execute(
+        "SELECT id, username, role, display_name FROM users WHERE username=? AND password=?",
+        ((body.get("username") or "").strip(), (body.get("password") or "").strip()),
+    ).fetchone()
+    conn.close()
+    if not user:
+        return jsonify({"error": "Credenciales inválidas"}), 401
+    token = secrets.token_hex(18)
+    TOKENS[token] = user
+    return jsonify({"token": token, "user": user})
+
+@app.route("/api/logout", methods=["GET"])
+def logout():
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+    TOKENS.pop(token, None)
+    return jsonify({"ok": True})
+
+@app.route("/api/bootstrap", methods=["GET"])
+def bootstrap():
+    user, err, code = require_user()
+    if not user: return err, code
+    conn = connect()
+    settings = conn.execute("SELECT * FROM settings WHERE id=1").fetchone()
+    players = conn.execute("SELECT * FROM players ORDER BY team_side, number, name").fetchall()
+    matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
+    videos = conn.execute("SELECT * FROM videos ORDER BY id DESC").fetchall()
+    highlights = conn.execute("SELECT * FROM highlights ORDER BY id DESC").fetchall()
+    conn.close()
+    for m in matches:
+        m["lineup_home"] = parse_json_list(m.get("lineup_home"))
+        m["lineup_away"] = parse_json_list(m.get("lineup_away"))
+    return jsonify({
+        "user": user,
+        "settings": settings,
+        "players": players,
+        "matches": matches,
+        "videos": videos,
+        "highlights": highlights,
+        "dashboard": {"players": len(players), "matches": len(matches), "videos": len(videos), "highlights": len(highlights)}
+    })
+
+@app.route("/api/upload-photo", methods=["POST"])
+def upload_photo():
+    user, err, code = require_roles({"admin", "user"})
+    if not user: return err, code
+    if "photo" not in request.files:
+        return jsonify({"error": "Sube una imagen válida"}), 400
+    upload = request.files["photo"]
+    if upload.filename == "":
+        return jsonify({"error": "No llegó la foto"}), 400
+    
+    ext = Path(upload.filename).suffix.lower() or ".jpg"
+    if ext not in ALLOWED_IMAGES:
+        return jsonify({"error": "Usa JPG, PNG o WEBP"}), 400
+
+    original_name = f"original_{secrets.token_hex(10)}{ext}"
+    poster_name = f"poster_{secrets.token_hex(10)}.png"
+    original_path = UPLOAD_DIR / original_name
+    poster_path = UPLOAD_DIR / poster_name
+    upload.save(original_path)
+
+    conn = connect()
+    s = conn.execute("SELECT * FROM settings WHERE id=1").fetchone()
+    conn.close()
+    side = request.form.get("team_side", "home")
+    colors = {
+        "primary": s["away_primary"] if side == "away" else s["home_primary"],
+        "secondary": s["away_secondary"] if side == "away" else s["home_secondary"],
+        "team_name": s["away_team_name"] if side == "away" else s["home_team_name"],
+    }
+    meta = {
+        "name": request.form.get("name", "Jugador"),
+        "nickname": request.form.get("nickname", ""),
+        "number": safe_int(request.form.get("number"), 0),
+        "position": request.form.get("position", "Jugador"),
+        "matches_played": safe_int(request.form.get("matches_played"), 0),
+        "goals": safe_int(request.form.get("goals"), 0),
+        "assists": safe_int(request.form.get("assists"), 0),
+    }
+    make_player_poster(original_path, poster_path, meta, colors)
+    return jsonify({"photo_path": f"/uploads/{original_name}", "poster_path": f"/uploads/{poster_name}"}), 201
+
+def player_payload():
+    body = request.get_json() or {}
+    return {
+        "team_side": body.get("team_side", "home"),
+        "name": (body.get("name") or "Jugador").strip(),
+        "nickname": (body.get("nickname") or "").strip(),
+        "number": safe_int(body.get("number"), 0),
+        "position": (body.get("position") or "").strip(),
+        "photo_path": (body.get("photo_path") or "").strip(),
+        "poster_path": (body.get("poster_path") or "").strip(),
+        "goals": safe_int(body.get("goals"), 0),
+        "assists": safe_int(body.get("assists"), 0),
+        "matches_played": safe_int(body.get("matches_played"), 0),
+        "rating": safe_float(body.get("rating"), 0),
+    }
+
+@app.route("/api/players", methods=["GET"])
+def get_players():
+    user, err, code = require_user()
+    if not user: return err, code
+    conn = connect()
+    rows = conn.execute("SELECT * FROM players ORDER BY team_side, number, name").fetchall()
+    conn.close()
+    return jsonify(rows)
+
+@app.route("/api/players", methods=["POST"])
+def create_player():
+    user, err, code = require_roles({"admin", "user"})
+    if not user: return err, code
+    p = player_payload()
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute('''INSERT INTO players
+    (team_side, name, nickname, number, position, photo_path, poster_path, goals, assists, matches_played, rating)
+    VALUES (:team_side, :name, :nickname, :number, :position, :photo_path, :poster_path, :goals, :assists, :matches_played, :rating)''', p)
+    conn.commit()
+    row = conn.execute("SELECT * FROM players WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    socketio.emit("data_changed", {"type": "players"})
+    return jsonify(row), 201
+
+@app.route("/api/players/<int:player_id>", methods=["PUT"])
+def update_player(player_id):
+    user, err, code = require_roles({"admin", "user"})
+    if not user: return err, code
+    p = player_payload()
+    p["id"] = player_id
+    conn = connect()
+    old = conn.execute("SELECT * FROM players WHERE id=?", (player_id,)).fetchone()
+    if old and not p["poster_path"]: p["poster_path"] = old.get("poster_path", "")
+    if old and not p["photo_path"]: p["photo_path"] = old.get("photo_path", "")
+    conn.execute('''UPDATE players SET team_side=:team_side, name=:name, nickname=:nickname, number=:number,
+    position=:position, photo_path=:photo_path, poster_path=:poster_path, goals=:goals, assists=:assists,
+    matches_played=:matches_played, rating=:rating WHERE id=:id''', p)
+    conn.commit()
+    row = conn.execute("SELECT * FROM players WHERE id=?", (player_id,)).fetchone()
+    conn.close()
+    socketio.emit("data_changed", {"type": "players"})
+    return jsonify(row)
+
+@app.route("/api/players/<int:player_id>", methods=["DELETE"])
+def delete_player(player_id):
+    user, err, code = require_roles({"admin", "user"})
+    if not user: return err, code
+    conn = connect(); conn.execute("DELETE FROM players WHERE id=?", (player_id,)); conn.commit(); conn.close()
+    socketio.emit("data_changed", {"type": "players"})
+    return jsonify({"ok": True})
+
+def match_payload():
+    body = request.get_json() or {}
+    return {
+        "title": (body.get("title") or "Partido").strip(),
+        "match_date": (body.get("match_date") or "").strip(),
+        "venue": (body.get("venue") or "").strip(),
+        "score_home": safe_int(body.get("score_home"), 0),
+        "score_away": safe_int(body.get("score_away"), 0),
+        "status": (body.get("status") or "programado").strip(),
+        "lineup_home": json.dumps(body.get("lineup_home") or [None]*7),
+        "lineup_away": json.dumps(body.get("lineup_away") or [None]*7),
+    }
+
+@app.route("/api/matches", methods=["GET"])
+def get_matches():
+    user, err, code = require_user()
+    if not user: return err, code
+    conn = connect()
+    rows = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
+    conn.close()
+    for r in rows:
+        r["lineup_home"] = parse_json_list(r.get("lineup_home"))
+        r["lineup_away"] = parse_json_list(r.get("lineup_away"))
+    return jsonify(rows)
+
+@app.route("/api/matches", methods=["POST"])
+def create_match():
+    user, err, code = require_roles({"admin", "user"})
+    if not user: return err, code
+    p = match_payload()
+    conn = connect()
+    cur = conn.cursor()
+    cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away)
+    VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away)''', p)
+    conn.commit()
+    row = conn.execute("SELECT * FROM matches WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    row["lineup_home"] = parse_json_list(row["lineup_home"]); row["lineup_away"] = parse_json_list(row["lineup_away"])
+    socketio.emit("match_updated", row)
+    return jsonify(row), 201
+
+@app.route("/api/matches/<int:match_id>", methods=["PUT"])
+def update_match(match_id):
+    user, err, code = require_roles({"admin", "user"})
+    if not user: return err, code
+    p = match_payload(); p["id"] = match_id
+    
+    # Optional logic: verify if capitanes are saving
+    # If the user is captain1 (home), they can only edit lineup_home. Same for away.
+    # To keep things simple and reliable, any "user" role can edit, but we broadcast the change.
+    
+    conn = connect()
+    conn.execute('''UPDATE matches SET title=:title, match_date=:match_date, venue=:venue, score_home=:score_home,
+    score_away=:score_away, status=:status, lineup_home=:lineup_home, lineup_away=:lineup_away WHERE id=:id''', p)
+    conn.commit()
+    row = conn.execute("SELECT * FROM matches WHERE id=?", (match_id,)).fetchone()
+    conn.close()
+    row["lineup_home"] = parse_json_list(row["lineup_home"]); row["lineup_away"] = parse_json_list(row["lineup_away"])
+    socketio.emit("match_updated", row)
+    return jsonify(row)
+
+@app.route("/api/matches/<int:match_id>", methods=["DELETE"])
+def delete_match(match_id):
+    user, err, code = require_roles({"admin", "user"})
+    if not user: return err, code
+    conn = connect(); conn.execute("DELETE FROM matches WHERE id=?", (match_id,)); conn.commit(); conn.close()
+    socketio.emit("data_changed", {"type": "matches"})
+    return jsonify({"ok": True})
+
+@app.route("/api/videos", methods=["GET"])
+def get_videos():
+    user, err, code = require_user()
+    if not user: return err, code
+    conn = connect(); rows = conn.execute("SELECT * FROM videos ORDER BY id DESC").fetchall(); conn.close()
+    return jsonify(rows)
+
+@app.route("/api/videos", methods=["POST"])
+def create_video():
+    user, err, code = require_roles({"admin"})
+    if not user: return err, code
+    b = request.get_json() or {}
+    conn = connect(); cur = conn.cursor()
+    cur.execute("INSERT INTO videos (title, platform, url, category) VALUES (?, ?, ?, ?)",
+                ((b.get("title") or "Video").strip(), (b.get("platform") or "youtube").strip(), (b.get("url") or "").strip(), (b.get("category") or "resumen").strip()))
+    conn.commit(); row = conn.execute("SELECT * FROM videos WHERE id=?", (cur.lastrowid,)).fetchone(); conn.close()
+    socketio.emit("data_changed", {"type": "videos"})
+    return jsonify(row), 201
+
+@app.route("/api/videos/<int:video_id>", methods=["DELETE"])
+def delete_video(video_id):
+    user, err, code = require_roles({"admin"})
+    if not user: return err, code
+    conn = connect(); conn.execute("DELETE FROM videos WHERE id=?", (video_id,)); conn.commit(); conn.close()
+    socketio.emit("data_changed", {"type": "videos"})
+    return jsonify({"ok": True})
+
+
+@app.route("/api/highlights", methods=["GET"])
+def get_highlights():
+    user, err, code = require_user()
+    if not user: return err, code
+    conn = connect(); rows = conn.execute("SELECT * FROM highlights ORDER BY id DESC").fetchall(); conn.close()
+    return jsonify(rows)
+
+@app.route("/api/highlights", methods=["POST"])
+def create_highlight():
+    user, err, code = require_roles({"admin"})
+    if not user: return err, code
+    b = request.get_json() or {}
+    conn = connect(); cur = conn.cursor()
+    cur.execute("INSERT INTO highlights (title, minute, description) VALUES (?, ?, ?)",
+                ((b.get("title") or "Momento").strip(), (b.get("minute") or "").strip(), (b.get("description") or "").strip()))
+    conn.commit(); row = conn.execute("SELECT * FROM highlights WHERE id=?", (cur.lastrowid,)).fetchone(); conn.close()
+    socketio.emit("data_changed", {"type": "highlights"})
+    return jsonify(row), 201
+
+@app.route("/api/highlights/<int:highlight_id>", methods=["DELETE"])
+def delete_highlight(highlight_id):
+    user, err, code = require_roles({"admin"})
+    if not user: return err, code
+    conn = connect(); conn.execute("DELETE FROM highlights WHERE id=?", (highlight_id,)); conn.commit(); conn.close()
+    socketio.emit("data_changed", {"type": "highlights"})
+    return jsonify({"ok": True})
+
+@app.route("/api/settings", methods=["POST"])
+def update_settings():
+    user, err, code = require_roles({"admin", "user"})
+    if not user: return err, code
+    body = request.get_json() or {}
+    conn = connect()
+    s = conn.execute("SELECT * FROM settings WHERE id=1").fetchone()
+    if user["role"] != "admin":
+        allowed = {"home_team_name","away_team_name","home_primary","home_secondary","away_primary","away_secondary","next_match_title","venue","schedule","captain_home_id","captain_away_id"}
+        body = {k:v for k,v in body.items() if k in allowed}
+    s.update(body)
+    conn.execute('''UPDATE settings SET app_name=?, home_team_name=?, away_team_name=?, home_primary=?, home_secondary=?,
+    away_primary=?, away_secondary=?, next_match_title=?, venue=?, schedule=?, live_enabled=?, live_url=?, captain_home_id=?, captain_away_id=? WHERE id=1''',
+    (s["app_name"], s["home_team_name"], s["away_team_name"], s["home_primary"], s["home_secondary"], s["away_primary"], s["away_secondary"], s["next_match_title"], s["venue"], s["schedule"], safe_int(s.get("live_enabled"),0), s.get("live_url",""), safe_int(s.get("captain_home_id"),0) or None, safe_int(s.get("captain_away_id"),0) or None))
+    conn.commit(); row = conn.execute("SELECT * FROM settings WHERE id=1").fetchone(); conn.close()
+    socketio.emit("settings_updated", row)
+    return jsonify(row)
+
+# Socket.io events
+@socketio.on("connect")
+def handle_connect():
+    print("User connected")
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    print("User disconnected")
+
+if __name__ == "__main__":
+    init_db()
+    port = int(os.environ.get("PORT", "3000"))
+    print(f"Futbol7 Clean Studio Flask+SocketIO en http://localhost:{port}")
+    socketio.run(app, host="0.0.0.0", port=port)
+"""
+
+with open("backend/server.py", "w", encoding="utf-8") as f:
+    f.write(flask_code)

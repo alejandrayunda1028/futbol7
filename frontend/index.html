@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Futbol7 Pro Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css"/>
+  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+</head>
+<body>
+  <div id="toast"></div>
+  
+  <div id="connectionStatus" class="connection-status hidden">
+    <i class="fa-solid fa-wifi"></i> <span>Desconectado</span>
+  </div>
+
+  <section id="login" class="login-screen">
+    <div class="login-bg-glow"></div>
+    <article class="login-card glass">
+      <div class="brand-logo"><i class="fa-solid fa-futbol"></i></div>
+      <p class="eyebrow">FUTBOL 7 · PRO STUDIO</p>
+      <h1>Colaboración en Tiempo Real</h1>
+      <p class="muted">Gestión avanzada y profesional de jugadores, formaciones y estadísticas en un solo lugar.</p>
+      <form id="loginForm" class="form">
+        <label>
+          <i class="fa-solid fa-user"></i>
+          <input name="username" value="admin" required placeholder="Usuario">
+        </label>
+        <label>
+          <i class="fa-solid fa-lock"></i>
+          <input name="password" type="password" value="admin123" required placeholder="Contraseña">
+        </label>
+        <button class="btn primary glow-on-hover">Ingresar al Studio</button>
+        <p class="hint">Admin: <b>admin / admin123</b> <br> Capitán 1: <b>capitan1 / cap123</b> <br> Capitán 2: <b>capitan2 / cap456</b></p>
+        <p id="loginMsg" class="error"></p>
+      </form>
+    </article>
+  </section>
+
+  <section id="app" class="app hidden">
+    <aside class="sidebar glass">
+      <div class="brand">
+        <div class="brand-logo small"><i class="fa-solid fa-futbol"></i></div>
+        <div class="brand-text">
+          <strong id="brandName">Futbol7 Pro</strong>
+          <span id="roleText" class="badge">Admin</span>
+        </div>
+      </div>
+      <nav id="nav" class="nav-menu"></nav>
+      <div class="sidebar-footer">
+        <a id="liveBtn" class="btn live hidden" target="_blank" rel="noopener"><i class="fa-solid fa-circle-dot live-icon"></i> <span>EN VIVO</span></a>
+        <button id="logoutBtn" class="btn danger-ghost"><i class="fa-solid fa-arrow-right-from-bracket"></i> <span>Cerrar Sesión</span></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="top-header glass">
+        <div class="header-title">
+          <h2 id="pageTitle">Inicio</h2>
+          <p id="pageDesc" class="muted">Panel principal de gestión</p>
+        </div>
+        <div class="header-actions">
+          <button id="refreshBtn" class="btn icon-btn" title="Actualizar Datos"><i class="fa-solid fa-rotate-right"></i></button>
+          <div class="user-avatar"><i class="fa-solid fa-user-astronaut"></i></div>
+        </div>
+      </header>
+      <section id="content" class="content-area"></section>
+    </main>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
