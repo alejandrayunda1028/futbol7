@@ -422,6 +422,7 @@ def bootstrap():
     for m in matches:
         m["lineup_home"] = parse_json_list(m.get("lineup_home"))
         m["lineup_away"] = parse_json_list(m.get("lineup_away"))
+        m["available_players"] = parse_json_list(m.get("available_players"))
     return jsonify({
         "user": user,
         "settings": settings,
@@ -552,6 +553,7 @@ def match_payload():
         "status": (body.get("status") or "programado").strip(),
         "lineup_home": json.dumps(body.get("lineup_home") or [None]*7),
         "lineup_away": json.dumps(body.get("lineup_away") or [None]*7),
+        "available_players": json.dumps(body.get("available_players") or []),
     }
 
 @app.route("/api/matches", methods=["GET"])
@@ -564,6 +566,7 @@ def get_matches():
     for r in rows:
         r["lineup_home"] = parse_json_list(r.get("lineup_home"))
         r["lineup_away"] = parse_json_list(r.get("lineup_away"))
+        r["available_players"] = parse_json_list(r.get("available_players"))
     return jsonify(rows)
 
 @app.route("/api/matches", methods=["POST"])
@@ -573,12 +576,13 @@ def create_match():
     p = match_payload()
     conn = connect()
     cur = conn.cursor()
-    cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away)
-    VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away)''', p)
+    cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away, available_players)
+    VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away, :available_players)''', p)
     conn.commit()
     row = conn.execute("SELECT * FROM matches WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
     row["lineup_home"] = parse_json_list(row["lineup_home"]); row["lineup_away"] = parse_json_list(row["lineup_away"])
+    row["available_players"] = parse_json_list(row.get("available_players"))
     socketio.emit("match_updated", row)
     return jsonify(row), 201
 
@@ -594,11 +598,12 @@ def update_match(match_id):
     
     conn = connect()
     conn.execute('''UPDATE matches SET title=:title, match_date=:match_date, venue=:venue, score_home=:score_home,
-    score_away=:score_away, status=:status, lineup_home=:lineup_home, lineup_away=:lineup_away WHERE id=:id''', p)
+    score_away=:score_away, status=:status, lineup_home=:lineup_home, lineup_away=:lineup_away, available_players=:available_players WHERE id=:id''', p)
     conn.commit()
     row = conn.execute("SELECT * FROM matches WHERE id=?", (match_id,)).fetchone()
     conn.close()
     row["lineup_home"] = parse_json_list(row["lineup_home"]); row["lineup_away"] = parse_json_list(row["lineup_away"])
+    row["available_players"] = parse_json_list(row.get("available_players"))
     socketio.emit("match_updated", row)
     return jsonify(row)
 
@@ -673,12 +678,19 @@ def update_settings():
     conn = connect()
     s = conn.execute("SELECT * FROM settings WHERE id=1").fetchone()
     if user["role"] != "admin":
-        allowed = {"home_team_name","away_team_name","home_primary","home_secondary","away_primary","away_secondary","next_match_title","venue","schedule","captain_home_id","captain_away_id"}
+        allowed = {"app_name", "home_team_name","away_team_name","home_primary","home_secondary","away_primary","away_secondary","next_match_title","venue","schedule","captain_home_id","captain_away_id","app_theme"}
         body = {k:v for k,v in body.items() if k in allowed}
     s.update(body)
+    
+    # Simple migration if app_theme doesn't exist
+    try:
+        conn.execute("ALTER TABLE settings ADD COLUMN app_theme TEXT DEFAULT 'dark'")
+    except Exception:
+        pass
+
     conn.execute('''UPDATE settings SET app_name=?, home_team_name=?, away_team_name=?, home_primary=?, home_secondary=?,
-    away_primary=?, away_secondary=?, next_match_title=?, venue=?, schedule=?, live_enabled=?, live_url=?, captain_home_id=?, captain_away_id=? WHERE id=1''',
-    (s["app_name"], s["home_team_name"], s["away_team_name"], s["home_primary"], s["home_secondary"], s["away_primary"], s["away_secondary"], s["next_match_title"], s["venue"], s["schedule"], safe_int(s.get("live_enabled"),0), s.get("live_url",""), safe_int(s.get("captain_home_id"),0) or None, safe_int(s.get("captain_away_id"),0) or None))
+    away_primary=?, away_secondary=?, next_match_title=?, venue=?, schedule=?, live_enabled=?, live_url=?, captain_home_id=?, captain_away_id=?, app_theme=? WHERE id=1''',
+    (s.get("app_name",""), s["home_team_name"], s["away_team_name"], s["home_primary"], s["home_secondary"], s["away_primary"], s["away_secondary"], s["next_match_title"], s["venue"], s["schedule"], safe_int(s.get("live_enabled"),0), s.get("live_url",""), safe_int(s.get("captain_home_id"),0) or None, safe_int(s.get("captain_away_id"),0) or None, s.get("app_theme", "dark")))
     conn.commit(); row = conn.execute("SELECT * FROM settings WHERE id=1").fetchone(); conn.close()
     socketio.emit("settings_updated", row)
     return jsonify(row)

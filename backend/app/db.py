@@ -138,6 +138,7 @@ def init_db():
     for col, ddl in [
         ("captain_home_id", "ALTER TABLE settings ADD COLUMN captain_home_id INTEGER DEFAULT NULL"),
         ("captain_away_id", "ALTER TABLE settings ADD COLUMN captain_away_id INTEGER DEFAULT NULL"),
+        ("available_players", "ALTER TABLE matches ADD COLUMN available_players TEXT DEFAULT '[]'"),
     ]:
         try:
             cur.execute(ddl)

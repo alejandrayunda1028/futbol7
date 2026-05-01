@@ -28,6 +28,52 @@ body {
   line-height: 1.5;
   min-height: 100vh;
   overflow-x: hidden;
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* Color Themes */
+body.theme-green {
+  --bg: #022c22;
+  --bg-panel: rgba(6, 78, 59, 0.6);
+  --bg-panel-solid: #064e3b;
+  --border: rgba(52, 211, 153, 0.2);
+  --primary: #10b981;
+  --primary-hover: #059669;
+  background-image: radial-gradient(circle at top right, rgba(16, 185, 129, 0.15), transparent 40%),
+                    radial-gradient(circle at bottom left, rgba(52, 211, 153, 0.1), transparent 40%);
+}
+
+body.theme-white {
+  --bg: #f8fafc;
+  --bg-panel: rgba(255, 255, 255, 0.8);
+  --bg-panel-solid: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: rgba(0, 0, 0, 0.1);
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  background-image: radial-gradient(circle at top right, rgba(59, 130, 246, 0.1), transparent 40%),
+                    radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.05), transparent 40%);
+}
+body.theme-white .glass {
+  border: 1px solid rgba(0,0,0,0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
+}
+body.theme-white .btn.ghost { border-color: rgba(0,0,0,0.2); }
+body.theme-white .btn.ghost:hover { background: rgba(0,0,0,0.05); }
+body.theme-white input, body.theme-white select, body.theme-white textarea {
+  background: rgba(0,0,0,0.05);
+  color: var(--text);
+  border-color: rgba(0,0,0,0.2);
+}
+body.theme-white .player-dot { border-color: #000; }
+body.theme-white .pitch-lines { border-color: rgba(255,255,255,0.7); }
+body.theme-white .pitch-lines::before, body.theme-white .pitch-lines::after { border-color: rgba(255,255,255,0.7); background: transparent; }
+body.theme-white .item-row { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.05); }
+body.theme-white .item-row:hover { background: rgba(0,0,0,0.06); }
+body.theme-white .player-card { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.05); }
+body.theme-white .player-card:hover { background: rgba(0,0,0,0.06); }
+body.theme-white .statline span { background: rgba(0,0,0,0.1); color: #0f172a; }
 }
 
 /* Utilities */
@@ -293,7 +339,8 @@ select option { background: var(--bg-panel-solid); }
   }
   .brand { margin-bottom: 0; }
   .sidebar-footer { flex-direction: row; align-items: center; gap: 8px; margin-top: 0; }
-  .sidebar-footer .btn span { display: none; } /* Hide text on mobile for buttons if needed */
+  .sidebar-footer .btn span { display: inline; font-size: 0.8rem; }
+  .sidebar-footer .btn { padding: 8px 12px; }
   
   .nav-menu { 
     position: fixed; bottom: 0; left: 0; right: 0; 

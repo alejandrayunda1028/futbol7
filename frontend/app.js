@@ -3,14 +3,13 @@ const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 
 const nav = [
   ["inicio", "Inicio", "fa-house"],
-  ["jugadores", "Jugadores", "fa-users"],
+  ["jugadores", "Plantilla General", "fa-users"],
   ["partido", "Partido 7v7", "fa-map"],
   ["contenido", "Videos", "fa-video"],
   ["ajustes", "Ajustes", "fa-gear"]
 ];
 
 const slots = ["ARQ", "DEF I", "DEF D", "MED I", "MED D", "EXT", "DEL"];
-// Relative coordinates on half pitch (Y from 0 to 100 for that half)
 const homePos = [[50,85],[20,60],[80,60],[30,35],[70,35],[20,15],[50,5]];
 const awayPos = [[50,15],[20,40],[80,40],[30,65],[70,65],[80,85],[50,95]];
 
@@ -81,20 +80,25 @@ function initSocket() {
     const idx = state.matches.findIndex(x => x.id === m.id);
     if(idx > -1) state.matches[idx] = m;
     else state.matches.unshift(m);
-    if(state.section === "partido") render();
+    if(state.section === "partido" || state.section === "inicio") render();
     toast("⚽ Formación actualizada en tiempo real");
   });
 
   socket.on("settings_updated", (s) => {
     state.settings = s;
+    applyTheme();
     if(state.section === "ajustes") render();
     shell();
   });
 
   socket.on("data_changed", (data) => {
-    // Reload full state for simplicity on other generic events
     load(false);
   });
+}
+
+function applyTheme() {
+  const t = state.settings?.app_theme || 'dark';
+  document.body.className = `theme-${t}`;
 }
 
 $("#loginForm").addEventListener("submit", async (e)=>{
@@ -128,6 +132,7 @@ async function load(fullRender = true){
   try{
     const data = await api("/api/bootstrap");
     Object.assign(state, data);
+    applyTheme();
     if(!socket || !socket.connected) initSocket();
     if(fullRender) { shell(); render(); }
   }catch(err){
@@ -150,7 +155,7 @@ function shell(){
   if(state.user.id === state.settings.captain_away_id) roleDisplay = "Capitán Rival";
   $("#roleText").textContent = roleDisplay;
 
-  $("#nav").innerHTML = nav.map(n => `<button class="${state.section===n[0]?'active':''}" data-sec="${n[0]}"><i class="fa-solid ${n[2]}"></i> ${n[1]}</button>`).join("");
+  $("#nav").innerHTML = nav.map(n => `<button class="${state.section===n[0]?'active':''}" data-sec="${n[0]}"><i class="fa-solid ${n[2]}"></i> <span>${n[1]}</span></button>`).join("");
   $$("[data-sec]").forEach(b => b.onclick = () => { state.section = b.dataset.sec; render(); });
   
   const live = Number(state.settings.live_enabled) && state.settings.live_url;
@@ -177,10 +182,14 @@ function bind(){
   $$("[data-edit-match]").forEach(b=>b.onclick=()=>{state.editMatch=Number(b.dataset.editMatch);state.section="partido";render();});
   $$("[data-del-match]").forEach(b=>b.onclick=()=>del("matches", b.dataset.delMatch, "partido"));
   
-  // Realtime change listeners for lineups
   $$(".lineup-select").forEach(sel => {
     sel.addEventListener("change", () => {
-      // Auto-save formation on change for real-time collaboration
+      if($("#matchForm")) $("#matchForm").requestSubmit();
+    });
+  });
+
+  $$(".avail-check").forEach(chk => {
+    chk.addEventListener("change", () => {
       if($("#matchForm")) $("#matchForm").requestSubmit();
     });
   });
@@ -192,11 +201,12 @@ function bind(){
   $$("[data-del-highlight]").forEach(b=>b.onclick=()=>del("highlights", b.dataset.delHighlight, "ajustes"));
 
   if(state.editPlayer) fillPlayer(state.players.find(p=>p.id===state.editPlayer));
-  if(state.editMatch) fillMatch(state.matches.find(m=>m.id===state.editMatch));
 }
 
 function inicio(){
   const s = state.settings, d = state.dashboard;
+  const nextMatch = state.matches.find(m => m.status !== 'jugado') || state.matches[0];
+
   return `
   <section class="panel glass" style="position:relative; overflow:hidden;">
     <div style="position:absolute; right:-50px; top:-50px; opacity:0.1; font-size:15rem;"><i class="fa-solid fa-futbol"></i></div>
@@ -217,11 +227,20 @@ function inicio(){
   </section>
 
   <section class="grid-4">
-    ${metric("Jugadores", d.players)}
+    ${metric("Plantilla", d.players)}
     ${metric("Partidos", d.matches)}
     ${metric("Videos", d.videos)}
     ${metric("Momentos", d.highlights)}
   </section>
+  
+  ${nextMatch && (nextMatch.lineup_home.some(x=>x) || nextMatch.lineup_away.some(x=>x)) ? `
+  <section class="panel glass" style="margin-top:24px; padding:0; overflow:hidden;">
+    <div style="padding:20px; border-bottom:1px solid var(--border);">
+      <h2><i class="fa-solid fa-chess-board"></i> Equipos Armados: ${esc(nextMatch.title)}</h2>
+    </div>
+    <div style="padding:20px;">${renderPitchShell(nextMatch)}</div>
+  </section>
+  ` : ''}
   `;
 }
 function metric(label,value){return `<article class="panel metric glass"><span>${esc(label)}</span><b>${esc(value)}</b></article>`}
@@ -234,16 +253,15 @@ function poster(player){
   return `<div class="poster placeholder"><strong>${esc(initial.toUpperCase())}</strong></div>`;
 }
 function playerCard(p){
-  const t = team(p.team_side);
   return `<article class="player-card">
     ${poster(p)}
     <div class="player-info">
       <div>
         <h3>${esc(p.nickname || p.name)}</h3>
-        <p class="muted">#${esc(p.number)} · <span style="color:${t.p}">${esc(t.name)}</span> · ${esc(p.position || "Sin posición")}</p>
+        <p class="muted">#${esc(p.number)} · ${esc(p.position || "Sin posición")}</p>
       </div>
       <div class="statline"><span>${p.matches_played||0} PJ</span><span>${p.goals||0} Goles</span><span>⭐ ${p.rating||0}</span></div>
-      <div class="row"><button class="btn ghost" data-edit-player="${p.id}"><i class="fa-solid fa-pen"></i></button><button class="btn danger-ghost icon-btn" data-del-player="${p.id}"><i class="fa-solid fa-trash"></i></button></div>
+      <div class="row"><button class="btn ghost icon-btn" data-edit-player="${p.id}"><i class="fa-solid fa-pen"></i></button><button class="btn danger-ghost icon-btn" data-del-player="${p.id}"><i class="fa-solid fa-trash"></i></button></div>
     </div>
   </article>`;
 }
@@ -252,10 +270,10 @@ function jugadores(){
   return `<section class="two-cols">
     <article class="panel glass">
       <p class="eyebrow">${state.editPlayer ? "Editar" : "Nuevo jugador"}</p>
-      <h2>${state.editPlayer ? "Editar jugador" : "Registrar jugador"}</h2>
+      <h2>${state.editPlayer ? "Editar jugador" : "Registrar jugador al pool"}</h2>
+      <p class="muted" style="margin-bottom:16px;">Los jugadores se añaden al pozo general. Los equipos se asignan al armar el partido.</p>
       <form id="playerForm" class="form-grid">
-        <label>Equipo<select name="team_side"><option value="home">${esc(state.settings.home_team_name)}</option><option value="away">${esc(state.settings.away_team_name)}</option></select></label>
-        <label>Nombre<input name="name" required placeholder="Ej: Ricardo M"></label>
+        <label class="full">Nombre<input name="name" required placeholder="Ej: Ricardo M"></label>
         <label>Apodo / portada<input name="nickname" placeholder="Ricky"></label>
         <label>Número<input name="number" type="number" min="0" max="99" value="0"></label>
         <label>Posición<input name="position" placeholder="Delantero"></label>
@@ -265,7 +283,8 @@ function jugadores(){
         <label>Calificación (0-10)<input name="rating" type="number" step=".1" value="0"></label>
         <label class="full">Foto del jugador (Auto-genera tarjeta)<input id="playerPhoto" type="file" accept="image/*"></label>
         <input name="photo_path" type="hidden"><input name="poster_path" type="hidden">
-        <div class="full row" style="margin-top:10px;"><button class="btn primary glow-on-hover"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar cambios" : "Guardar jugador"}</button><button type="button" class="btn ghost" id="clearPlayer">Limpiar</button></div>
+        <input name="team_side" type="hidden" value="none">
+        <div class="full row" style="margin-top:10px;"><button class="btn primary glow-on-hover"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar cambios" : "Añadir a Plantilla"}</button><button type="button" class="btn ghost" id="clearPlayer">Limpiar</button></div>
         <div id="playerMsg" class="full"></div>
       </form>
     </article>
@@ -279,7 +298,7 @@ function jugadores(){
   </section>
 
   <section class="panel glass" style="margin-top:24px">
-    <div class="row" style="justify-content:space-between; margin-bottom:20px;"><h2>Plantilla Completa</h2><span class="badge" style="font-size:1rem;">${state.players.length} jugadores</span></div>
+    <div class="row" style="justify-content:space-between; margin-bottom:20px;"><h2>Plantilla General</h2><span class="badge" style="font-size:1rem;">${state.players.length} jugadores</span></div>
     <div class="grid-4">${state.players.map(playerCard).join("") || empty("Registra el primer jugador.")}</div>
   </section>`;
 }
@@ -297,7 +316,8 @@ async function uploadPhoto(e){
   $("#playerMsg").innerHTML = `<div class="muted"><i class="fa-solid fa-spinner fa-spin"></i> Subiendo y creando presentación con IA...</div>`;
   const fd = new FormData();
   fd.append("photo", file);
-  ["team_side","name","nickname","number","position","matches_played","goals","assists"].forEach(k=>fd.append(k, form[k]?.value || ""));
+  ["name","nickname","number","position","matches_played","goals","assists"].forEach(k=>fd.append(k, form[k]?.value || ""));
+  fd.append("team_side", "none");
   try{
     const data = await api("/api/upload-photo", {method:"POST", body:fd});
     form.photo_path.value = data.photo_path;
@@ -335,36 +355,73 @@ function partido(){
   const canEditHome = isAdmin || isCapHome;
   const canEditAway = isAdmin || isCapAway;
 
+  // Compute Balance Check
+  let homeStars = 0; let awayStars = 0;
+  if (match) {
+    match.lineup_home.forEach(id => { const p = player(id); if(p) homeStars += p.rating; });
+    match.lineup_away.forEach(id => { const p = player(id); if(p) awayStars += p.rating; });
+  }
+  const balanceDiff = Math.abs(homeStars - awayStars);
+  const isUnbalanced = balanceDiff > 8;
+
   return `<section class="two-cols">
     <article class="panel glass">
       <p class="eyebrow">Partido & Formación</p>
       <h2>${state.editMatch ? "Editar partido" : "Pizarra Táctica (Tiempo Real)"}</h2>
-      <p class="muted" style="margin-bottom:20px"><i class="fa-solid fa-circle-info"></i> Los cambios en la alineación se reflejan instantáneamente para todos los usuarios conectados.</p>
+      
       <form id="matchForm" class="form-grid">
-        <label class="full">Título del Encuentro<input name="title" value="${esc(match?.title || state.settings.next_match_title)}"></label>
-        <label>Fecha<input name="match_date" value="${esc(match?.match_date || "")}" placeholder="Ej: Hoy 19:00"></label>
-        <label>Cancha<input name="venue" value="${esc(match?.venue || state.settings.venue)}"></label>
-        <label>Goles Local<input name="score_home" type="number" value="${esc(match?.score_home || 0)}"></label>
-        <label>Goles Rival<input name="score_away" type="number" value="${esc(match?.score_away || 0)}"></label>
-        <label>Estado<select name="status"><option>programado</option><option ${match?.status==="en vivo"?"selected":""}>en vivo</option><option ${match?.status==="jugado"?"selected":""}>jugado</option></select></label>
+        <label class="full">Título del Encuentro<input name="title" value="${esc(match?.title || state.settings.next_match_title)}" ${isAdmin?'':'readonly'}></label>
+        
+        ${isAdmin ? `
+        <div class="full panel glass" style="padding:16px; margin-bottom:0">
+          <h3><i class="fa-solid fa-list-check"></i> Disponibilidad de Jugadores (Call-up)</h3>
+          <p class="muted" style="margin-bottom:12px">El admin marca quiénes jugarán este partido. Los capitanes solo podrán seleccionar de esta lista.</p>
+          <div style="display:flex; flex-wrap:wrap; gap:12px; max-height:200px; overflow-y:auto; padding-right:10px;">
+            ${state.players.map(p => `
+              <label style="flex-direction:row; align-items:center; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:8px; gap:8px;">
+                <input type="checkbox" name="avail_${p.id}" value="${p.id}" class="avail-check" ${match?.available_players?.includes(p.id) ? 'checked' : ''}>
+                #${p.number} ${esc(p.nickname || p.name)} (⭐${p.rating})
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        ` : ''}
+
+        <label>Fecha<input name="match_date" value="${esc(match?.match_date || "")}" placeholder="Ej: Hoy 19:00" ${isAdmin?'':'readonly'}></label>
+        <label>Cancha<input name="venue" value="${esc(match?.venue || state.settings.venue)}" ${isAdmin?'':'readonly'}></label>
+        <label>Goles Local<input name="score_home" type="number" value="${esc(match?.score_home || 0)}" ${isAdmin?'':'readonly'}></label>
+        <label>Goles Rival<input name="score_away" type="number" value="${esc(match?.score_away || 0)}" ${isAdmin?'':'readonly'}></label>
         
         <div class="full" style="background:rgba(255,255,255,0.05); padding:16px; border-radius:12px; border-left:4px solid ${esc(state.settings.home_primary)}">
           <h3 style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
-            ${esc(state.settings.home_team_name)}
+            ${esc(state.settings.home_team_name)} (⭐ ${homeStars.toFixed(1)})
             ${!canEditHome ? '<span class="badge" style="background:var(--danger)">Solo lectura</span>' : ''}
           </h3>
-          <div class="form-grid">${lineupSelectors("home", match?.lineup_home || [], canEditHome)}</div>
+          <div class="form-grid">${lineupSelectors("home", match?.lineup_home || [], match?.available_players || [], canEditHome)}</div>
         </div>
         
         <div class="full" style="background:rgba(255,255,255,0.05); padding:16px; border-radius:12px; border-left:4px solid ${esc(state.settings.away_primary)}">
           <h3 style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
-            ${esc(state.settings.away_team_name)}
+            ${esc(state.settings.away_team_name)} (⭐ ${awayStars.toFixed(1)})
             ${!canEditAway ? '<span class="badge" style="background:var(--danger)">Solo lectura</span>' : ''}
           </h3>
-          <div class="form-grid">${lineupSelectors("away", match?.lineup_away || [], canEditAway)}</div>
+          <div class="form-grid">${lineupSelectors("away", match?.lineup_away || [], match?.available_players || [], canEditAway)}</div>
         </div>
+
+        ${isUnbalanced ? `
+        <div class="full" style="background:rgba(239, 68, 68, 0.2); border:1px solid rgba(239, 68, 68, 0.5); padding:16px; border-radius:12px; color:#fca5a5; display:flex; align-items:center; gap:12px;">
+          <i class="fa-solid fa-scale-unbalanced" style="font-size:2rem"></i>
+          <div>
+            <strong>¡Equipos Desbalanceados!</strong>
+            <p>La diferencia de estrellas entre los equipos es de ${balanceDiff.toFixed(1)} (mayor a 8.0). Considera intercambiar jugadores para un partido más justo.</p>
+          </div>
+        </div>
+        ` : ''}
         
-        <div class="full row"><button class="btn primary glow-on-hover"><i class="fa-solid fa-check-double"></i> Guardar Pizarra</button><button class="btn ghost" type="button" id="clearMatch">Nuevo Partido</button></div>
+        <div class="full row">
+          ${isAdmin || canEditHome || canEditAway ? `<button class="btn primary glow-on-hover"><i class="fa-solid fa-check-double"></i> Guardar Pizarra</button>` : ''}
+          ${isAdmin ? `<button class="btn ghost" type="button" id="clearMatch"><i class="fa-solid fa-plus"></i> Publicar Nuevo Partido</button>` : ''}
+        </div>
         <div id="matchMsg" class="full"></div>
       </form>
     </article>
@@ -379,17 +436,42 @@ function partido(){
   </section>
   <section class="panel glass" style="margin-top:24px"><h2>Historial de Partidos</h2><div class="item-list">${state.matches.map(matchItem).join("")}</div></section>`;
 }
-function lineupSelectors(side, selected=[], canEdit){
-  const list = state.players.filter(p=>p.team_side===side);
-  return slots.map((label,i)=>`<label>${label}<select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'}><option value="">Sin asignar</option>${list.map(p=>`<option value="${p.id}" ${Number(selected[i])===Number(p.id)?"selected":""}>#${p.number} ${esc(p.name)}</option>`).join("")}</select></label>`).join("");
+function lineupSelectors(side, selected=[], availIds=[], canEdit){
+  // Filter players by availability, unless it's an admin who didn't select any (in which case, show all for legacy support, or strict logic)
+  const list = state.players.filter(p => availIds.includes(p.id));
+  const playerOptions = list.map(p=>`<option value="${p.id}">#${p.number} ${esc(p.name)} (⭐${p.rating})</option>`).join("");
+  
+  return slots.map((label,i)=>{
+    const selVal = selected[i];
+    // We must ensure the selected player appears in the dropdown even if suddenly marked unavailable, 
+    // to prevent losing them accidentally when editing.
+    let extraOpt = "";
+    if (selVal && !availIds.includes(selVal)) {
+      const p = player(selVal);
+      if(p) extraOpt = `<option value="${p.id}">#${p.number} ${esc(p.name)} (No disp.)</option>`;
+    }
+    return `<label>${label}<select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'}>
+      <option value="">Sin asignar</option>
+      ${extraOpt}
+      ${list.map(p=>`<option value="${p.id}" ${Number(selVal)===Number(p.id)?"selected":""}>#${p.number} ${esc(p.name)} (⭐${p.rating})</option>`).join("")}
+    </select></label>`;
+  }).join("");
 }
 function getMatchPayload(){
   const f = Object.fromEntries(new FormData($("#matchForm")).entries());
+  
+  // Extract avail checkboxes
+  const avail = [];
+  for (let key in f) {
+    if (key.startsWith("avail_")) avail.push(Number(f[key]));
+  }
+
   return {
-    title:f.title, match_date:f.match_date, venue:f.venue, status:f.status,
+    title:f.title, match_date:f.match_date, venue:f.venue, status:f.status || 'programado',
     score_home:+f.score_home||0, score_away:+f.score_away||0,
     lineup_home: slots.map((_,i)=>f["home_"+i] ? +f["home_"+i] : null),
-    lineup_away: slots.map((_,i)=>f["away_"+i] ? +f["away_"+i] : null)
+    lineup_away: slots.map((_,i)=>f["away_"+i] ? +f["away_"+i] : null),
+    available_players: avail
   };
 }
 async function saveMatch(e){
@@ -398,8 +480,6 @@ async function saveMatch(e){
     const payload = getMatchPayload();
     if(state.editMatch) await api("/api/matches/"+state.editMatch,{method:"PUT",body:JSON.stringify(payload)});
     else await api("/api/matches",{method:"POST",body:JSON.stringify(payload)});
-    // Realtime broadcast is handled by server and received by socket
-    // toast("Pizarra guardada"); // Optional, already toasted by socket event
   }catch(err){ $("#matchMsg").innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`; }
 }
 function fillMatch(m){}
@@ -469,10 +549,6 @@ function ajustes(){
   const s = state.settings;
   const isAdmin = state.user.role === "admin";
   
-  // Fetch users to populate capitanes dropdowns
-  // To avoid making a new endpoint, I'll hardcode the known users from db.py
-  // Or just provide inputs where the admin can type the ID.
-  // We know IDs are 2=capitan1, 3=capitan2 based on init_db.
   const capOpts = [
     {id: 2, name: "Capitán Local (capitan1)"},
     {id: 3, name: "Capitán Rival (capitan2)"},
@@ -482,8 +558,16 @@ function ajustes(){
   return `<section class="two-cols">
     <article class="panel glass">
       <p class="eyebrow">Personalización</p>
-      <h2>Equipos y Colores</h2>
+      <h2>Equipos y Tema</h2>
       <form id="settingsForm" class="form-grid">
+        <label class="full">Tema de la Interfaz
+          <select name="app_theme" ${isAdmin?'':'disabled'}>
+            <option value="dark" ${s.app_theme==='dark'?'selected':''}>Oscuro Profundo (Predeterminado)</option>
+            <option value="green" ${s.app_theme==='green'?'selected':''}>Césped Verde (Fútbol)</option>
+            <option value="white" ${s.app_theme==='white'?'selected':''}>Blanco Luminoso</option>
+          </select>
+        </label>
+
         <label class="full">Nombre de la App<input name="app_name" value="${esc(s.app_name)}" ${isAdmin?'':'readonly'}></label>
         <label>Equipo Local<input name="home_team_name" value="${esc(s.home_team_name)}"></label>
         <label>Equipo Rival<input name="away_team_name" value="${esc(s.away_team_name)}"></label>
@@ -555,14 +639,13 @@ async function saveSettings(e){
   e.preventDefault();
   try{
     const fd = new FormData(e.currentTarget);
-    // Include disabled selects
     if(!fd.has('live_enabled')) fd.append('live_enabled', e.currentTarget.live_enabled.value);
     if(!fd.has('captain_home_id')) fd.append('captain_home_id', e.currentTarget.captain_home_id.value);
     if(!fd.has('captain_away_id')) fd.append('captain_away_id', e.currentTarget.captain_away_id.value);
+    if(!fd.has('app_theme')) fd.append('app_theme', e.currentTarget.app_theme.value);
     
     await api("/api/settings",{method:"POST",body:JSON.stringify(Object.fromEntries(fd.entries()))});
     toast("Ajustes guardados. Actualizando en tiempo real..."); 
-    // real-time update handled by socket
   }catch(err){ $("#settingsMsg").innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`; }
 }
 async function saveVideo(e){
@@ -578,7 +661,6 @@ async function saveHighlight(e){
 async function del(table,id,section){
   if(!confirm("¿Eliminar este elemento permanentemente?")) return;
   await api(`/api/${table}/${id}`,{method:"DELETE"});
-  // UI refresh handled via socket
 }
 
 load();
