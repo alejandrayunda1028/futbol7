@@ -140,6 +140,7 @@ async function load(fullRender = true){
     state.token = "";
     state.user = null;
     shell();
+    throw err;
   }
 }
 function shell(){
@@ -147,12 +148,15 @@ function shell(){
   $("#login").classList.toggle("hidden", on);
   $("#app").classList.toggle("hidden", !on);
   if(!on) return;
-  $("#brandName").textContent = state.settings.app_name || "Futbol7 Pro";
+  
+  const s = state.settings || {};
+  
+  $("#brandName").textContent = s.app_name || "Futbol7 Pro";
   
   let roleDisplay = "Usuario";
   if(state.user.role === "admin") roleDisplay = "Admin";
-  if(state.user.id === state.settings.captain_home_id) roleDisplay = "Capitán Local";
-  if(state.user.id === state.settings.captain_away_id) roleDisplay = "Capitán Rival";
+  if(state.user.id === s.captain_home_id) roleDisplay = "Capitán Local";
+  if(state.user.id === s.captain_away_id) roleDisplay = "Capitán Rival";
   $("#roleText").textContent = roleDisplay;
 
   $("#nav").innerHTML = nav.map(n => `<button class="${state.section===n[0]?'active':''}" data-sec="${n[0]}"><i class="fa-solid ${n[2]}"></i> <span>${n[1]}</span></button>`).join("");
@@ -204,24 +208,24 @@ function bind(){
 }
 
 function inicio(){
-  const s = state.settings, d = state.dashboard;
+  const s = state.settings || {}, d = state.dashboard || {};
   const nextMatch = state.matches.find(m => m.status !== 'jugado') || state.matches[0];
 
   return `
   <section class="panel glass" style="position:relative; overflow:hidden;">
     <div style="position:absolute; right:-50px; top:-50px; opacity:0.1; font-size:15rem;"><i class="fa-solid fa-futbol"></i></div>
     <p class="eyebrow">Panel principal</p>
-    <h2 style="font-size:2.5rem; margin-bottom: 8px;">${esc(s.next_match_title)}</h2>
-    <p class="muted" style="font-size:1.1rem;"><i class="fa-solid fa-location-dot"></i> ${esc(s.venue)} &nbsp;|&nbsp; <i class="fa-regular fa-calendar"></i> ${esc(s.schedule)}</p>
+    <h2 style="font-size:2.5rem; margin-bottom: 8px;">${esc(s.next_match_title || "Próximo Partido")}</h2>
+    <p class="muted" style="font-size:1.1rem;"><i class="fa-solid fa-location-dot"></i> ${esc(s.venue || "Cancha principal")} &nbsp;|&nbsp; <i class="fa-regular fa-calendar"></i> ${esc(s.schedule || "Pendiente")}</p>
     <div class="row" style="margin-top:24px;">
       <div style="display:flex; align-items:center; gap:16px; background:rgba(0,0,0,0.3); padding:12px 24px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">
-        <div style="width:24px;height:24px;border-radius:50%;background:${esc(s.home_primary)}"></div>
-        <strong style="font-size:1.2rem">${esc(s.home_team_name)}</strong>
+        <div style="width:24px;height:24px;border-radius:50%;background:${esc(s.home_primary || "#ff1558")}"></div>
+        <strong style="font-size:1.2rem">${esc(s.home_team_name || "Equipo Local")}</strong>
       </div>
       <span style="font-weight:800; color:var(--muted)">VS</span>
       <div style="display:flex; align-items:center; gap:16px; background:rgba(0,0,0,0.3); padding:12px 24px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">
-        <div style="width:24px;height:24px;border-radius:50%;background:${esc(s.away_primary)}"></div>
-        <strong style="font-size:1.2rem">${esc(s.away_team_name)}</strong>
+        <div style="width:24px;height:24px;border-radius:50%;background:${esc(s.away_primary || "#2563eb")}"></div>
+        <strong style="font-size:1.2rem">${esc(s.away_team_name || "Equipo Rival")}</strong>
       </div>
     </div>
   </section>
