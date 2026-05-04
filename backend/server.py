@@ -413,6 +413,7 @@ def get_users():
     rows = conn.execute("SELECT id, username, display_name, role, player_id FROM users").fetchall()
     conn.close()
     return jsonify(rows)
+@app.route("/api/login", methods=["POST"])
 def login():
     body = request.get_json() or {}
     conn = connect()
