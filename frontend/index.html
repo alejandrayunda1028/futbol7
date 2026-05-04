@@ -10,7 +10,6 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="styles.css"/>
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <div id="toast"></div>
@@ -36,28 +35,8 @@
           <input name="password" type="password" value="admin123" required placeholder="Contraseña">
         </label>
         <button class="btn primary glow-on-hover">Ingresar al Studio</button>
-        <p class="hint">Admin: <b>admin / admin123</b> <br> Capitán 1: <b>capitan1 / cap123</b></p>
+        <p class="hint">Admin: <b>admin / admin123</b> <br> Cap: <b>capitan1 / cap123</b></p>
         <p id="loginMsg" class="error"></p>
-        
-        <div style="display:flex; align-items:center; margin:16px 0;">
-          <div style="flex:1; height:1px; background:var(--border)"></div>
-          <span style="padding:0 12px; font-size:0.8rem; color:var(--muted)">O Ingresa con Google</span>
-          <div style="flex:1; height:1px; background:var(--border)"></div>
-        </div>
-        <div id="g_id_onload"
-             data-context="signin"
-             data-ux_mode="popup"
-             data-callback="handleGoogleLogin"
-             data-auto_prompt="false">
-        </div>
-        <div class="g_id_signin"
-             data-type="standard"
-             data-shape="rectangular"
-             data-theme="filled_black"
-             data-text="signin_with"
-             data-size="large"
-             data-logo_alignment="left">
-        </div>
       </form>
     </article>
   </section>

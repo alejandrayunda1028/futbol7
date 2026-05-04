@@ -64,9 +64,13 @@ def init_db():
 
     CREATE TABLE IF NOT EXISTS players (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_code TEXT UNIQUE,
+        is_registered INTEGER DEFAULT 1,
         team_side TEXT NOT NULL DEFAULT 'home',
         name TEXT NOT NULL,
         nickname TEXT DEFAULT '',
+        email TEXT DEFAULT '',
+        phone TEXT DEFAULT '',
         number INTEGER DEFAULT 0,
         position TEXT DEFAULT '',
         photo_path TEXT DEFAULT '',
@@ -74,7 +78,19 @@ def init_db():
         goals INTEGER DEFAULT 0,
         assists INTEGER DEFAULT 0,
         matches_played INTEGER DEFAULT 0,
-        rating REAL DEFAULT 0
+        rating REAL DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS match_managers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id INTEGER NOT NULL,
+        player_id INTEGER NOT NULL,
+        assigned_by_user_id INTEGER,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(match_id, player_id)
     );
 
     CREATE TABLE IF NOT EXISTS matches (
@@ -156,6 +172,12 @@ def init_db():
         ("bio", "ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''"),
         ("player_id", "ALTER TABLE users ADD COLUMN player_id INTEGER DEFAULT NULL"),
         ("google_client_id", "ALTER TABLE settings ADD COLUMN google_client_id TEXT DEFAULT ''"),
+        ("player_code", "ALTER TABLE players ADD COLUMN player_code TEXT UNIQUE"),
+        ("is_registered", "ALTER TABLE players ADD COLUMN is_registered INTEGER DEFAULT 1"),
+        ("email", "ALTER TABLE players ADD COLUMN email TEXT DEFAULT ''"),
+        ("phone", "ALTER TABLE players ADD COLUMN phone TEXT DEFAULT ''"),
+        ("created_at", "ALTER TABLE players ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP"),
+        ("updated_at", "ALTER TABLE players ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP"),
     ]:
         try:
             cur.execute(ddl)
@@ -166,10 +188,10 @@ def init_db():
         cur.executemany(
             "INSERT INTO users (username, password, role, display_name) VALUES (?, ?, ?, ?)",
             [
-                ("admin", "admin123", "admin", "Administrador"),
-                ("capitan1", "cap123", "user", "Capitán Local"),
-                ("capitan2", "cap456", "user", "Capitán Rival"),
-                ("usuario", "user123", "user", "Espectador"),
+                ("admin", "admin123", "ADMIN", "Administrador"),
+                ("capitan1", "cap123", "CAPTAIN", "Capitán Local"),
+                ("capitan2", "cap456", "CAPTAIN", "Capitán Rival"),
+                ("usuario", "user123", "PLAYER", "Jugador Espectador"),
             ],
         )
     if not cur.execute("SELECT id FROM settings WHERE id=1").fetchone():

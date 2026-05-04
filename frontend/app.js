@@ -128,20 +128,6 @@ $("#loginForm").addEventListener("submit", async (e)=>{
   }
 });
 
-window.handleGoogleLogin = async function(response) {
-  try {
-    const data = await api("/api/login/google", {
-      method: "POST",
-      body: JSON.stringify({ credential: response.credential })
-    });
-    state.token = data.token;
-    localStorage.f7_clean_token = state.token;
-    await load();
-  } catch (err) {
-    $("#loginMsg").textContent = "Google Login failed: " + err.message;
-  }
-};
-
 $("#logoutBtn").onclick = async () => {
   try{ await api("/api/logout"); }catch{}
   localStorage.removeItem("f7_clean_token");
@@ -184,13 +170,20 @@ function shell(){
   
   $("#brandName").textContent = s.app_name || "Futbol7 Pro";
   
-  let roleDisplay = "Usuario";
-  if(state.user.role === "admin") roleDisplay = "Admin";
-  if(state.user.id === s.captain_home_id) roleDisplay = "Capitán Local";
-  if(state.user.id === s.captain_away_id) roleDisplay = "Capitán Rival";
+  let roleDisplay = "Jugador";
+  if(state.user.role === "ADMIN") roleDisplay = "Administrador";
+  else if(state.user.role === "CAPTAIN") roleDisplay = "Capitán";
   $("#roleText").textContent = roleDisplay;
 
-  $("#nav").innerHTML = nav.map(n => `<button class="${state.section===n[0]?'active':''}" data-sec="${n[0]}"><i class="fa-solid ${n[2]}"></i> <span>${n[1]}</span></button>`).join("");
+  const isAdmin = state.user.role === "ADMIN";
+  const isCap = state.user.role === "CAPTAIN";
+
+  const filteredNav = nav.filter(n => {
+    if (n[0] === "ajustes") return isAdmin;
+    return true;
+  });
+
+  $("#nav").innerHTML = filteredNav.map(n => `<button class="${state.section===n[0]?'active':''}" data-sec="${n[0]}"><i class="fa-solid ${n[2]}"></i> <span>${n[1]}</span></button>`).join("");
   $$("[data-sec]").forEach(b => b.onclick = () => { state.section = b.dataset.sec; render(); });
   
   const live = Number(state.settings.live_enabled) && state.settings.live_url;
@@ -222,6 +215,22 @@ function bind(){
   $("#playerPhoto")?.addEventListener("change", uploadPhoto);
   $("#clearPlayer")?.addEventListener("click", ()=>{state.editPlayer=null;render();});
   $$("[data-edit-player]").forEach(b=>b.onclick=()=>{state.editPlayer=Number(b.dataset.editPlayer);state.section="jugadores";render();});
+  $$("[data-del-player]").forEach(b=>b.onclick=async ()=>{if(confirm("¿Eliminar jugador?")) {await api("/api/players/"+b.dataset.delPlayer,{method:"DELETE"}); load();}});
+
+  $("#searchPlayers")?.addEventListener("input", (e) => {
+    state.searchPlayers = e.target.value;
+    // Debounced or simple re-render
+    const grid = $(".grid-4", $("#content"));
+    const q = state.searchPlayers.toLowerCase();
+    const filtered = state.players.filter(p => 
+      p.name.toLowerCase().includes(q) || 
+      (p.player_code || "").toLowerCase().includes(q) ||
+      (p.email || "").toLowerCase().includes(q) ||
+      (p.phone || "").toLowerCase().includes(q) ||
+      (p.nickname || "").toLowerCase().includes(q)
+    );
+    if(grid) grid.innerHTML = filtered.map(playerCard).join("") || empty("No se encontraron jugadores.");
+  });
   $$("[data-del-player]").forEach(b=>b.onclick=()=>del("players", b.dataset.delPlayer, "jugadores"));
 
   $("#matchForm")?.addEventListener("submit", saveMatch);
@@ -395,53 +404,95 @@ function poster(player){
   return `<div class="poster placeholder"><strong>${esc(initial.toUpperCase())}</strong></div>`;
 }
 function playerCard(p){
+  const isReg = !!p.is_registered;
+  const statusHtml = isReg 
+    ? `<span class="badge" style="background:var(--success); color:#fff"><i class="fa-solid fa-check-circle"></i> Registrado</span>`
+    : `<span class="badge" style="background:var(--muted); color:#fff"><i class="fa-solid fa-user-clock"></i> Invitado</span>`;
+    
   return `<article class="player-card">
     ${poster(p)}
     <div class="player-info">
       <div>
-        <h3>${esc(p.nickname || p.name)}</h3>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+          <h3 style="margin:0">${esc(p.nickname || p.name)}</h3>
+          <span style="font-family:monospace; font-weight:700; color:var(--primary); font-size:0.8rem">${esc(p.player_code || '')}</span>
+        </div>
         <p class="muted">#${esc(p.number)} · ${esc(p.position || "Sin posición")}</p>
+        <div style="margin-top:4px">${statusHtml}</div>
       </div>
       <div class="statline"><span>${p.matches_played||0} PJ</span><span>${p.goals||0} Goles</span><span>⭐ ${p.rating||0}</span></div>
-      <div class="row"><button class="btn ghost icon-btn" data-edit-player="${p.id}"><i class="fa-solid fa-pen"></i></button><button class="btn danger-ghost icon-btn" data-del-player="${p.id}"><i class="fa-solid fa-trash"></i></button></div>
+      <div class="row">
+        ${state.user.role !== 'PLAYER' ? `
+        <button class="btn ghost icon-btn" data-edit-player="${p.id}"><i class="fa-solid fa-pen"></i></button>
+        ${state.user.role === 'ADMIN' ? `<button class="btn danger-ghost icon-btn" data-del-player="${p.id}"><i class="fa-solid fa-trash"></i></button>` : ''}
+        ` : ''}
+      </div>
     </div>
   </article>`;
 }
 
 function jugadores(){
-  return `<section class="two-cols">
+  const isAdmin = state.user.role === "ADMIN";
+  const isCap = state.user.role === "CAPTAIN";
+  const canEdit = isAdmin || isCap;
+
+  const q = (state.searchPlayers || "").toLowerCase();
+  const filtered = state.players.filter(p => 
+    p.name.toLowerCase().includes(q) || 
+    (p.player_code || "").toLowerCase().includes(q) ||
+    (p.email || "").toLowerCase().includes(q) ||
+    (p.phone || "").toLowerCase().includes(q) ||
+    (p.nickname || "").toLowerCase().includes(q)
+  );
+
+  return `
+  ${canEdit ? `
+  <section class="two-cols">
     <article class="panel glass">
       <p class="eyebrow">${state.editPlayer ? "Editar" : "Nuevo jugador"}</p>
-      <h2>${state.editPlayer ? "Editar jugador" : "Registrar jugador al pool"}</h2>
-      <p class="muted" style="margin-bottom:16px;">Los jugadores se añaden al pozo general. Los equipos se asignan al armar el partido.</p>
+      <h2>${state.editPlayer ? "Editar jugador" : "Registrar jugador"}</h2>
       <form id="playerForm" class="form-grid">
-        <label class="full">Nombre<input name="name" required placeholder="Ej: Ricardo M"></label>
-        <label>Apodo / portada<input name="nickname" placeholder="Ricky"></label>
-        <label>Número<input name="number" type="number" min="0" max="99" value="0"></label>
-        <label>Posición<input name="position" placeholder="Delantero"></label>
-        <label>Partidos<input name="matches_played" type="number" value="0"></label>
-        <label>Goles<input name="goals" type="number" value="0"></label>
-        <label>Asistencias<input name="assists" type="number" value="0"></label>
-        <label>Calificación (0-10)<input name="rating" type="number" step=".1" value="0"></label>
-        <label class="full">Foto del jugador (Auto-genera tarjeta)<input id="playerPhoto" type="file" accept="image/*"></label>
+        <label class="full">Nombre Completo<input name="name" required placeholder="Ej: Ricardo M"></label>
+        <label>Correo (Opcional)<input name="email" type="email"></label>
+        <label>Teléfono (Opcional)<input name="phone"></label>
+        <label>Número Camiseta<input name="number" type="number" min="0" max="99" value="0"></label>
+        <label>Posición Preferida<input name="position" placeholder="Delantero"></label>
+        <label>Tipo de Jugador
+          <select name="is_registered">
+            <option value="1">Registrado (ID Único)</option>
+            <option value="0">Invitado / Manual</option>
+          </select>
+        </label>
+        <label>Calificación Inicial (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10"></label>
+        
+        <label class="full">Foto del jugador (Generar Tarjeta)<input id="playerPhoto" type="file" accept="image/*"></label>
         <input name="photo_path" type="hidden"><input name="poster_path" type="hidden">
-        <input name="team_side" type="hidden" value="none">
-        <div class="full row" style="margin-top:10px;"><button class="btn primary glow-on-hover"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar cambios" : "Añadir a Plantilla"}</button><button type="button" class="btn ghost" id="clearPlayer">Limpiar</button></div>
+        <div class="full row" style="margin-top:10px;">
+          <button class="btn primary glow-on-hover"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar" : "Crear Jugador"}</button>
+          <button type="button" class="btn ghost" id="clearPlayer">Cancelar</button>
+        </div>
         <div id="playerMsg" class="full"></div>
       </form>
     </article>
-    <div style="display:flex; flex-direction:column; gap:24px;">
-      <article class="panel glass">
-        <p class="eyebrow">Vista previa</p>
-        <h2>Ficha de Presentación</h2>
-        <div id="preview" style="display:flex; justify-content:center;">${poster({name:"Tu jugador",nickname:"Jugador",poster_path:""})}</div>
-      </article>
-    </div>
+    <article class="panel glass">
+      <p class="eyebrow">Vista previa</p>
+      <h2>Ficha de Presentación</h2>
+      <div id="preview" style="display:flex; justify-content:center;">${poster({name:"Tu jugador",nickname:"Jugador",poster_path:""})}</div>
+    </article>
   </section>
+  ` : ''}
 
   <section class="panel glass" style="margin-top:24px">
-    <div class="row" style="justify-content:space-between; margin-bottom:20px;"><h2>Plantilla General</h2><span class="badge" style="font-size:1rem;">${state.players.length} jugadores</span></div>
-    <div class="grid-4">${state.players.map(playerCard).join("") || empty("Registra el primer jugador.")}</div>
+    <div class="row" style="justify-content:space-between; margin-bottom:20px; align-items:center;">
+      <div>
+        <h2>Plantilla General</h2>
+        <p class="muted">Buscar y gestionar jugadores registrados o invitados.</p>
+      </div>
+      <div style="width:300px">
+        <input id="searchPlayers" placeholder="🔍 Buscar por nombre o código..." value="${esc(state.searchPlayers || '')}" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:12px; padding:12px 20px; width:100%;">
+      </div>
+    </div>
+    <div class="grid-4">${filtered.map(playerCard).join("") || empty("No se encontraron jugadores.")}</div>
   </section>`;
 }
 function getPlayerForm(){
@@ -449,7 +500,8 @@ function getPlayerForm(){
   return {
     ...f,
     number:+f.number||0, goals:+f.goals||0, assists:+f.assists||0,
-    matches_played:+f.matches_played||0, rating:+f.rating||0
+    matches_played:+f.matches_played||0, rating:+f.rating||0,
+    is_registered: f.is_registered === "1"
   };
 }
 async function uploadPhoto(e){
@@ -489,35 +541,35 @@ function fillPlayer(p){
 }
 
 function partido(){
-  const match = state.editMatch ? state.matches.find(m=>m.id===state.editMatch) : (state.matches[0] || null);
+  const s = state.settings;
+  if(!s) return empty("Cargando ajustes...");
+  const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
   
-  const isCapHome = state.user.id === state.settings.captain_home_id;
-  const isCapAway = state.user.id === state.settings.captain_away_id;
-  const isAdmin = state.user.role === "admin";
-  const canEditHome = isAdmin || isCapHome;
-  const canEditAway = isAdmin || isCapAway;
+  const isAdmin = state.user.role === "ADMIN";
+  const isCap = state.user.role === "CAPTAIN";
+  const isManager = match && (match.managers || []).includes(state.user.player_id);
+  const canEdit = isAdmin || isCap || isManager;
 
-  // Compute Balance Check
-  let homeStars = 0; let awayStars = 0;
-  if (match) {
-    match.lineup_home.forEach(id => { const p = player(id); if(p) homeStars += p.rating; });
-    match.lineup_away.forEach(id => { const p = player(id); if(p) awayStars += p.rating; });
-  }
+  const homeStars = (match?.lineup_home || []).reduce((acc,id)=>acc+(player(id)?.rating||0),0);
+  const awayStars = (match?.lineup_away || []).reduce((acc,id)=>acc+(player(id)?.rating||0),0);
   const balanceDiff = Math.abs(homeStars - awayStars);
   const isUnbalanced = balanceDiff > 8;
 
-  return `<section class="two-cols">
+  const canEditHome = isAdmin || (isCap && state.user.id === s.captain_home_id) || isManager;
+  const canEditAway = isAdmin || (isCap && state.user.id === s.captain_away_id) || isManager;
+
+  return `
+  <section class="two-cols">
     <article class="panel glass">
-      <p class="eyebrow">Partido & Formación</p>
-      <h2>${state.editMatch ? "Editar partido" : "Pizarra Táctica (Tiempo Real)"}</h2>
-      
+      <p class="eyebrow">${match ? "Edición de Partido" : "Nuevo Partido"}</p>
+      <h2>${match ? "Gestión de Formaciones" : "Publicar Partido"}</h2>
       <form id="matchForm" class="form-grid">
         <label class="full">Título del Encuentro<input name="title" value="${esc(match?.title || state.settings.next_match_title)}" ${isAdmin?'':'readonly'}></label>
         
         ${isAdmin ? `
         <div class="full panel glass" style="padding:16px; margin-bottom:0">
           <h3><i class="fa-solid fa-list-check"></i> Disponibilidad de Jugadores (Call-up)</h3>
-          <p class="muted" style="margin-bottom:12px">El admin marca quiénes jugarán este partido. Los capitanes solo podrán seleccionar de esta lista.</p>
+          <p class="muted" style="margin-bottom:12px">Marca quiénes jugarán este partido. Otros roles solo podrán elegir de esta lista.</p>
           <div style="display:flex; flex-wrap:wrap; gap:12px; max-height:200px; overflow-y:auto; padding-right:10px;">
             ${state.players.map(p => `
               <label style="flex-direction:row; align-items:center; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:8px; gap:8px;">
@@ -529,19 +581,33 @@ function partido(){
         </div>
         ` : ''}
 
+        ${(isAdmin || isCap) && match ? `
+        <div class="full panel glass" style="padding:16px; margin-top:12px">
+          <h3><i class="fa-solid fa-user-shield"></i> Gestores del Partido</h3>
+          <p class="muted">Asigna jugadores para que ayuden a gestionar este partido específico.</p>
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
+            ${(match.managers || []).map(mid => {
+              const p = player(mid);
+              return `<div class="row" style="background:rgba(255,255,255,0.05); padding:8px 12px; border-radius:8px;">
+                <span>${p ? esc(p.name) : 'ID: '+mid}</span>
+                <button type="button" class="btn danger-ghost icon-btn small" onclick="removeManager(${match.id}, ${mid})"><i class="fa-solid fa-xmark"></i></button>
+              </div>`;
+            }).join('')}
+            <div class="row">
+              <select id="newManagerSelect" style="flex:1">
+                <option value="">Seleccionar jugador...</option>
+                ${state.players.filter(p => !(match.managers||[]).includes(p.id)).map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.player_code)})</option>`).join('')}
+              </select>
+              <button type="button" class="btn ghost small" onclick="addManager(${match.id})"><i class="fa-solid fa-plus"></i> Añadir</button>
+            </div>
+          </div>
+        </div>
+        ` : ''}
+
         <label>Fecha<input name="match_date" value="${esc(match?.match_date || "")}" placeholder="Ej: Hoy 19:00" ${isAdmin?'':'readonly'}></label>
         <label>Cancha<input name="venue" value="${esc(match?.venue || state.settings.venue)}" ${isAdmin?'':'readonly'}></label>
-        <label>Goles Local<input name="score_home" type="number" value="${esc(match?.score_home || 0)}" ${isAdmin?'':'readonly'}></label>
-        <label>Goles Rival<input name="score_away" type="number" value="${esc(match?.score_away || 0)}" ${isAdmin?'':'readonly'}></label>
-        
-        ${isAdmin ? `
-        <label class="full" style="display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" name="has_stream" value="1" ${match?.has_stream ? 'checked' : ''}>
-          <span>Destacar este partido con transmisión en vivo/video</span>
-        </label>
-        <label class="full">URL de Transmisión en Vivo<input name="stream_url" value="${esc(match?.stream_url||'')}"></label>
-        <label class="full">URL Video Post-Partido<input name="video_url" value="${esc(match?.video_url||'')}"></label>
-        ` : ''}
+        <label>Goles Local<input name="score_home" type="number" value="${esc(match?.score_home || 0)}" ${canEdit?'':'readonly'}></label>
+        <label>Goles Rival<input name="score_away" type="number" value="${esc(match?.score_away || 0)}" ${canEdit?'':'readonly'}></label>
         
         <div class="full" style="background:rgba(255,255,255,0.05); padding:16px; border-radius:12px; border-left:4px solid ${esc(state.settings.home_primary)}">
           <h3 style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
@@ -564,24 +630,24 @@ function partido(){
           <i class="fa-solid fa-scale-unbalanced" style="font-size:2rem"></i>
           <div>
             <strong>¡Equipos Desbalanceados!</strong>
-            <p>La diferencia de estrellas entre los equipos es de ${balanceDiff.toFixed(1)} (mayor a 8.0). Considera intercambiar jugadores para un partido más justo.</p>
+            <p>Diferencia de estrellas: ${balanceDiff.toFixed(1)} (límite 8.0). Considera ajustar las formaciones.</p>
           </div>
         </div>
         ` : ''}
         
         <div class="full row">
-          ${isAdmin || canEditHome || canEditAway ? `<button class="btn primary glow-on-hover"><i class="fa-solid fa-check-double"></i> Guardar Pizarra</button>` : ''}
-          ${isAdmin ? `<button class="btn ghost" type="button" id="clearMatch"><i class="fa-solid fa-plus"></i> Publicar Nuevo Partido</button>` : ''}
+          ${canEdit ? `<button class="btn primary glow-on-hover"><i class="fa-solid fa-floppy-disk"></i> Guardar Partido</button>` : ''}
+          ${isAdmin ? `<button class="btn ghost" type="button" id="clearMatch"><i class="fa-solid fa-plus"></i> Nuevo</button>` : ''}
         </div>
         <div id="matchMsg" class="full"></div>
       </form>
     </article>
     <article class="panel glass" style="padding:0; overflow:hidden; border:none; display:flex; flex-direction:column; background:transparent;">
       <div style="padding:20px; background:var(--bg-panel); border-bottom:1px solid var(--border); border-radius:12px 12px 0 0;">
-        <h2><i class="fa-solid fa-chess-board"></i> Pizarra</h2>
+        <h2><i class="fa-solid fa-chess-board"></i> Pizarra Táctica</h2>
       </div>
       <div style="flex:1; padding:20px;">
-        ${match ? renderPitchShell(match) : empty("Aún no hay partido seleccionado.")}
+        ${match ? renderPitchShell(match) : empty("Selecciona un partido del historial para editarlo.")}
       </div>
     </article>
   </section>
@@ -590,7 +656,6 @@ function partido(){
 function lineupSelectors(side, selected=[], availIds=[], canEdit){
   const list = state.players.filter(p => availIds.includes(p.id));
   
-  // Collect all currently selected IDs in the whole form to disable them in other selects
   const allSelectedIds = [];
   $$(".lineup-select").forEach(s => { if(s.value) allSelectedIds.push(Number(s.value)); });
 
@@ -609,13 +674,13 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit){
       ${photoHtml}
       <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
         <span style="font-size:0.8rem; font-weight:700; color:var(--muted)">${label}</span>
-        <select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'} style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
+        <select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'} onchange="render()" style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
           <option value="">Sin asignar</option>
           ${extraOpt}
           ${list.map(pl => {
             const isPickedByOther = allSelectedIds.includes(Number(pl.id)) && Number(selVal) !== Number(pl.id);
             return `<option value="${pl.id}" ${Number(selVal)===Number(pl.id)?"selected":""} ${isPickedByOther ? 'disabled' : ''}>
-              #${pl.number} ${esc(pl.name)} (⭐${pl.rating}) ${isPickedByOther ? '— Ocupado' : ''}
+              #${pl.number} ${esc(pl.nickname || pl.name)} (⭐${pl.rating}) ${isPickedByOther ? '— Ocupado' : ''}
             </option>`;
           }).join("")}
         </select>
@@ -908,5 +973,28 @@ async function del(table,id,section){
   if(!confirm("¿Eliminar este elemento permanentemente?")) return;
   await api(`/api/${table}/${id}`,{method:"DELETE"});
 }
+window.addManager = async (matchId) => {
+  const playerId = $("#newManagerSelect").value;
+  if(!playerId) return toast("Selecciona un jugador");
+  try {
+    await api(`/api/matches/${matchId}/managers`, {
+      method: "POST",
+      body: JSON.stringify({ player_id: Number(playerId) })
+    });
+    toast("Gestor añadido");
+    await load(false);
+    render();
+  } catch (err) { toast(err.message); }
+};
+
+window.removeManager = async (matchId, playerId) => {
+  if(!confirm("¿Quitar gestor?")) return;
+  try {
+    await api(`/api/matches/${matchId}/managers/${playerId}`, { method: "DELETE" });
+    toast("Gestor quitado");
+    await load(false);
+    render();
+  } catch (err) { toast(err.message); }
+};
 
 load();
