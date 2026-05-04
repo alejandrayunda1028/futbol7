@@ -139,6 +139,22 @@ def init_db():
         ("captain_home_id", "ALTER TABLE settings ADD COLUMN captain_home_id INTEGER DEFAULT NULL"),
         ("captain_away_id", "ALTER TABLE settings ADD COLUMN captain_away_id INTEGER DEFAULT NULL"),
         ("available_players", "ALTER TABLE matches ADD COLUMN available_players TEXT DEFAULT '[]'"),
+        ("has_stream", "ALTER TABLE matches ADD COLUMN has_stream INTEGER DEFAULT 0"),
+        ("stream_url", "ALTER TABLE matches ADD COLUMN stream_url TEXT DEFAULT ''"),
+        ("video_url", "ALTER TABLE matches ADD COLUMN video_url TEXT DEFAULT ''"),
+        ("stream_desc", "ALTER TABLE matches ADD COLUMN stream_desc TEXT DEFAULT ''"),
+        ("media_path", "ALTER TABLE highlights ADD COLUMN media_path TEXT DEFAULT ''"),
+        ("media_type", "ALTER TABLE highlights ADD COLUMN media_type TEXT DEFAULT ''"),
+        ("moment_type", "ALTER TABLE highlights ADD COLUMN moment_type TEXT DEFAULT 'otro'"),
+        ("match_id", "ALTER TABLE highlights ADD COLUMN match_id INTEGER DEFAULT NULL"),
+        ("google_id", "ALTER TABLE users ADD COLUMN google_id TEXT DEFAULT NULL"),
+        ("email", "ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL"),
+        ("avatar", "ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT NULL"),
+        ("phone", "ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''"),
+        ("preferred_position", "ALTER TABLE users ADD COLUMN preferred_position TEXT DEFAULT ''"),
+        ("shirt_number", "ALTER TABLE users ADD COLUMN shirt_number INTEGER DEFAULT NULL"),
+        ("bio", "ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''"),
+        ("player_id", "ALTER TABLE users ADD COLUMN player_id INTEGER DEFAULT NULL"),
     ]:
         try:
             cur.execute(ddl)

@@ -3,6 +3,7 @@ const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 
 const nav = [
   ["inicio", "Inicio", "fa-house"],
+  ["perfil", "Mi Perfil", "fa-user"],
   ["jugadores", "Plantilla General", "fa-users"],
   ["partido", "Partido 7v7", "fa-map"],
   ["contenido", "Videos", "fa-video"],
@@ -126,6 +127,21 @@ $("#loginForm").addEventListener("submit", async (e)=>{
     btn.innerHTML = `Ingresar al Studio`;
   }
 });
+
+window.handleGoogleLogin = async function(response) {
+  try {
+    const data = await api("/api/login/google", {
+      method: "POST",
+      body: JSON.stringify({ credential: response.credential })
+    });
+    state.token = data.token;
+    localStorage.f7_clean_token = state.token;
+    await load();
+  } catch (err) {
+    $("#loginMsg").textContent = "Google Login failed: " + err.message;
+  }
+};
+
 $("#logoutBtn").onclick = async () => {
   try{ await api("/api/logout"); }catch{}
   localStorage.removeItem("f7_clean_token");
@@ -177,13 +193,16 @@ function shell(){
 }
 function render(){
   shell();
-  const views = {inicio, jugadores, partido, contenido, ajustes};
+  const views = {inicio, perfil, jugadores, partido, contenido, ajustes};
   $("#content").innerHTML = views[state.section]();
   $("#pageTitle").textContent = nav.find(n=>n[0]===state.section)?.[1] || "";
   
   bind();
 }
 function bind(){
+  $("#profileForm")?.addEventListener("submit", saveProfile);
+  $("#profilePhoto")?.addEventListener("change", uploadProfilePhoto);
+
   $("#playerForm")?.addEventListener("submit", savePlayer);
   $("#playerPhoto")?.addEventListener("change", uploadPhoto);
   $("#clearPlayer")?.addEventListener("click", ()=>{state.editPlayer=null;render();});
@@ -196,7 +215,16 @@ function bind(){
   $$("[data-del-match]").forEach(b=>b.onclick=()=>del("matches", b.dataset.delMatch, "partido"));
   
   $$(".lineup-select").forEach(sel => {
-    sel.addEventListener("change", () => {
+    sel.addEventListener("change", (e) => {
+      const val = e.target.value;
+      if (val) {
+        let count = 0;
+        $$(".lineup-select").forEach(s => { if (s.value === val) count++; });
+        if (count > 1) {
+          toast("Este jugador ya fue seleccionado en otra posición.", true);
+          e.target.value = ""; // revert
+        }
+      }
       if($("#matchForm")) $("#matchForm").requestSubmit();
     });
   });
@@ -216,6 +244,72 @@ function bind(){
   if(state.editPlayer) fillPlayer(state.players.find(p=>p.id===state.editPlayer));
 }
 
+async function saveProfile(e) {
+  e.preventDefault();
+  try {
+    const fd = new FormData(e.currentTarget);
+    const data = await api("/api/users/profile", { method: "PUT", body: JSON.stringify(Object.fromEntries(fd)) });
+    Object.assign(state.user, data);
+    toast("Perfil actualizado correctamente");
+    render();
+  } catch (err) { toast("Error al guardar perfil", true); }
+}
+
+async function uploadProfilePhoto(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("photo", file);
+  try {
+    const res = await api("/api/users/profile/photo", { method: "POST", body: fd });
+    state.user.avatar = res.avatar;
+    toast("Foto actualizada");
+    render();
+  } catch (err) { toast("Error subiendo foto", true); }
+}
+
+function perfil() {
+  const u = state.user;
+  const avatarHtml = u.avatar ? `<img src="${esc(u.avatar)}" style="width:100px; height:100px; border-radius:50%; object-fit:cover; border:2px solid var(--primary)">` : `<div style="width:100px; height:100px; border-radius:50%; background:var(--bg-panel-solid); display:flex; align-items:center; justify-content:center; font-size:3rem; border:2px solid var(--border)"><i class="fa-solid fa-user"></i></div>`;
+  
+  const playersOptions = state.players.map(p => `<option value="${p.id}" ${u.player_id === p.id ? 'selected' : ''}>#${p.number} ${esc(p.name)}</option>`).join("");
+  
+  return `
+  <section class="panel glass">
+    <div class="row" style="align-items:flex-start">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:16px;">
+        ${avatarHtml}
+        <label class="btn ghost btn-small" style="cursor:pointer">
+          <i class="fa-solid fa-camera"></i> Cambiar Foto
+          <input type="file" id="profilePhoto" hidden accept="image/*">
+        </label>
+      </div>
+      <form id="profileForm" class="form" style="flex:1">
+        <h3>Información Personal</h3>
+        <label>Nombre a Mostrar <input name="display_name" value="${esc(u.display_name)}" required></label>
+        <label>Teléfono <input name="phone" value="${esc(u.phone || '')}"></label>
+        <div class="row">
+          <label>Posición Preferida <input name="preferred_position" value="${esc(u.preferred_position || '')}" placeholder="Ej. Medio Campo"></label>
+          <label>Número Camiseta <input type="number" name="shirt_number" value="${u.shirt_number || ''}" style="width:80px"></label>
+        </div>
+        <label class="full">Acerca de mi <textarea name="bio" rows="3">${esc(u.bio || '')}</textarea></label>
+        
+        <h3 style="margin-top:24px">Vincular con Plantilla</h3>
+        <p class="muted" style="margin-bottom:12px;">Asocia tu cuenta a un jugador en la plantilla para sincronizar estadísticas.</p>
+        <label class="full">Jugador Asociado
+          <select name="player_id">
+            <option value="">-- No asociado --</option>
+            ${playersOptions}
+          </select>
+        </label>
+
+        <button class="btn primary glow-on-hover" style="align-self:flex-start; margin-top:16px;">Guardar Perfil</button>
+      </form>
+    </div>
+  </section>
+  `;
+}
+
 function inicio(){
   const s = state.settings || {}, d = state.dashboard || {};
   const nextMatch = state.matches.find(m => m.status !== 'jugado') || state.matches[0];
@@ -226,6 +320,15 @@ function inicio(){
     <p class="eyebrow">Panel principal</p>
     <h2 style="font-size:2.5rem; margin-bottom: 8px;">${esc(s.next_match_title || "Próximo Partido")}</h2>
     <p class="muted" style="font-size:1.1rem;"><i class="fa-solid fa-location-dot"></i> ${esc(s.venue || "Cancha principal")} &nbsp;|&nbsp; <i class="fa-regular fa-calendar"></i> ${esc(s.schedule || "Pendiente")}</p>
+    
+    ${nextMatch && nextMatch.has_stream && nextMatch.stream_url ? `
+      <div style="margin-top:16px;">
+        <a href="${esc(nextMatch.stream_url)}" target="_blank" class="btn primary glow-on-hover" style="display:inline-flex; align-items:center; gap:8px;">
+          <i class="fa-solid fa-video"></i> Ver transmisión en vivo
+        </a>
+      </div>
+    ` : ''}
+    
     <div class="row" style="margin-top:24px;">
       <div style="display:flex; align-items:center; gap:16px; background:rgba(0,0,0,0.3); padding:12px 24px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">
         <div style="width:24px;height:24px;border-radius:50%;background:${esc(s.home_primary || "#ff1558")}"></div>
@@ -405,6 +508,15 @@ function partido(){
         <label>Goles Local<input name="score_home" type="number" value="${esc(match?.score_home || 0)}" ${isAdmin?'':'readonly'}></label>
         <label>Goles Rival<input name="score_away" type="number" value="${esc(match?.score_away || 0)}" ${isAdmin?'':'readonly'}></label>
         
+        ${isAdmin ? `
+        <label class="full" style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" name="has_stream" value="1" ${match?.has_stream ? 'checked' : ''}>
+          <span>Destacar este partido con transmisión en vivo/video</span>
+        </label>
+        <label class="full">URL de Transmisión en Vivo<input name="stream_url" value="${esc(match?.stream_url||'')}"></label>
+        <label class="full">URL Video Post-Partido<input name="video_url" value="${esc(match?.video_url||'')}"></label>
+        ` : ''}
+        
         <div class="full" style="background:rgba(255,255,255,0.05); padding:16px; border-radius:12px; border-left:4px solid ${esc(state.settings.home_primary)}">
           <h3 style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
             ${esc(state.settings.home_team_name)} (⭐ ${homeStars.toFixed(1)})
@@ -490,7 +602,10 @@ function getMatchPayload(){
     score_home:+f.score_home||0, score_away:+f.score_away||0,
     lineup_home: slots.map((_,i)=>f["home_"+i] ? +f["home_"+i] : null),
     lineup_away: slots.map((_,i)=>f["away_"+i] ? +f["away_"+i] : null),
-    available_players: avail
+    available_players: avail,
+    has_stream: f.has_stream ? 1 : 0,
+    stream_url: f.stream_url || "",
+    video_url: f.video_url || ""
   };
 }
 async function saveMatch(e){
@@ -541,12 +656,29 @@ function pitch(lineup, coords, side){
 function contenido(){
   return `<section class="two-cols">
     <article class="panel glass">
-      <h2>Videos</h2>
+      <h2>Videos / Transmisiones</h2>
       <div class="item-list">${state.videos.map(videoCard).join("") || empty("Aún no hay videos.")}</div>
     </article>
     <article class="panel glass">
-      <h2>Momentos</h2>
-      <div class="item-list">${state.highlights.map(h=>`<div class="item-row" style="flex-direction:column; align-items:flex-start; gap:8px;"><div><span class="badge" style="background:var(--primary); color:#fff"><i class="fa-solid fa-stopwatch"></i> ${esc(h.minute)}</span> <b>${esc(h.title)}</b></div><p class="muted">${esc(h.description)}</p></div>`).join("") || empty("No hay momentos.")}</div>
+      <h2>Momentos Destacados</h2>
+      <div class="item-list">${state.highlights.map(h=>{
+        const mediaHtml = h.media_path ? (h.media_type === 'video' ? `<video src="${esc(h.media_path)}" controls style="width:100%; border-radius:8px; margin-top:8px;"></video>` : `<img src="${esc(h.media_path)}" style="width:100%; border-radius:8px; margin-top:8px;">`) : '';
+        const matchInfo = h.match_id ? `<span class="badge" style="background:rgba(255,255,255,0.1)">Partido #${h.match_id}</span>` : '';
+        const momentIcon = h.moment_type==='gol' ? 'fa-futbol' : h.moment_type==='tarjeta' ? 'fa-square' : 'fa-bolt';
+        
+        return `<div class="item-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+          <div style="width:100%; display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <span class="badge" style="background:var(--primary); color:#fff"><i class="fa-solid fa-stopwatch"></i> ${esc(h.minute)}</span> 
+              <span class="badge"><i class="fa-solid ${momentIcon}"></i> ${esc(h.moment_type.toUpperCase())}</span>
+              ${matchInfo}
+            </div>
+          </div>
+          <b style="font-size:1.1rem">${esc(h.title)}</b>
+          <p class="muted">${esc(h.description)}</p>
+          ${mediaHtml}
+        </div>`;
+      }).join("") || empty("No hay momentos.")}</div>
     </article>
   </section>`;
 }
@@ -650,6 +782,25 @@ function ajustes(){
           <h3 class="full">Agregar Momento (Highlight)</h3>
           <label>Título<input name="title" required></label>
           <label>Minuto<input name="minute" placeholder="Ej: 23'"></label>
+          <label>Tipo de Momento
+            <select name="moment_type">
+              <option value="gol">Gol</option>
+              <option value="falta">Falta</option>
+              <option value="tarjeta">Tarjeta</option>
+              <option value="sustitucion">Sustitución</option>
+              <option value="destacada">Jugada Destacada</option>
+              <option value="otro" selected>Otro</option>
+            </select>
+          </label>
+          <label>Partido Relacionado
+            <select name="match_id">
+              <option value="">Ninguno</option>
+              ${state.matches.map(m=>`<option value="${m.id}">${esc(m.title)} - ${esc(m.match_date)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="full">Archivo Multimedia (Imagen/Video)
+            <input type="file" id="highlightMedia" accept="image/*,video/mp4,video/webm">
+          </label>
           <label class="full">Descripción<textarea name="description" style="min-height:60px"></textarea></label>
           <div class="full"><button class="btn ghost"><i class="fa-solid fa-bolt"></i> Guardar Momento</button></div>
           <div id="highlightMsg" class="full"></div>
@@ -688,8 +839,34 @@ async function saveVideo(e){
 }
 async function saveHighlight(e){
   e.preventDefault();
-  try{ await api("/api/highlights",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(e.currentTarget).entries()))}); e.target.reset(); toast("Momento guardado"); }
-  catch(err){ $("#highlightMsg").innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`; }
+  try{
+    const form = e.currentTarget;
+    const file = $("#highlightMedia")?.files[0];
+    let media_path = "", media_type = "";
+    
+    if (file) {
+      $("#highlightMsg").innerHTML = `<div class="muted"><i class="fa-solid fa-spinner fa-spin"></i> Subiendo archivo...</div>`;
+      const fd = new FormData();
+      fd.append("media", file);
+      const res = await api("/api/upload-media", { method:"POST", body:fd });
+      media_path = res.url;
+      media_type = res.type;
+    }
+    
+    const body = {
+      title: form.title.value,
+      minute: form.minute.value,
+      description: form.description.value,
+      moment_type: form.moment_type.value,
+      match_id: form.match_id.value ? Number(form.match_id.value) : null,
+      media_path: media_path,
+      media_type: media_type
+    };
+    
+    await api("/api/highlights",{method:"POST",body:JSON.stringify(body)});
+    form.reset();
+    toast("Momento guardado"); 
+  }catch(err){ $("#highlightMsg").innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`; }
 }
 async function del(table,id,section){
   if(!confirm("¿Eliminar este elemento permanentemente?")) return;

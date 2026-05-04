@@ -10,6 +10,8 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_socketio import SocketIO, emit
 from werkzeug.utils import secure_filename
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 from app.db import UPLOAD_DIR, connect, init_db, parse_json_list
 
@@ -391,10 +393,131 @@ def login():
     body = request.get_json() or {}
     conn = connect()
     user = conn.execute(
-        "SELECT id, username, role, display_name FROM users WHERE username=? AND password=?",
+        "SELECT * FROM users WHERE username=? AND password=?",
         ((body.get("username") or "").strip(), (body.get("password") or "").strip()),
     ).fetchone()
     conn.close()
+    if not user:
+        return jsonify({"error": "Credenciales inválidas"}), 401
+    
+    # Do not leak password in tokens
+    if "password" in user: del user["password"]
+    
+    token = secrets.token_hex(18)
+    TOKENS[token] = user
+    return jsonify({"token": token, "user": user})
+
+@app.route("/api/login/google", methods=["POST"])
+def login_google():
+    body = request.get_json() or {}
+    token_id = body.get("credential")
+    if not token_id: return jsonify({"error": "No credential provided"}), 400
+    
+    # We allow the google JWT to be verified without hardcoding client ID if we want,
+    # but it's best practice to verify it. In Railway, they will set GOOGLE_CLIENT_ID.
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    try:
+        idinfo = id_token.verify_oauth2_token(token_id, google_requests.Request(), client_id)
+        # idinfo contains: sub (google_id), email, name, picture
+    except Exception as e:
+        return jsonify({"error": "Token inválido: " + str(e)}), 400
+    
+    google_id = idinfo.get("sub")
+    email = idinfo.get("email")
+    name = idinfo.get("name")
+    picture = idinfo.get("picture")
+    
+    conn = connect()
+    user = conn.execute("SELECT * FROM users WHERE google_id=?", (google_id,)).fetchone()
+    if not user:
+        user = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    
+    if not user:
+        # Create new user
+        base_username = email.split("@")[0]
+        # ensure unique username
+        username = base_username
+        i = 1
+        while conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
+            username = f"{base_username}{i}"
+            i += 1
+            
+        conn.execute("""INSERT INTO users (username, password, role, display_name, google_id, email, avatar) 
+                        VALUES (?, ?, 'user', ?, ?, ?, ?)""", 
+                     (username, "", name, google_id, email, picture))
+        conn.commit()
+        user = conn.execute("SELECT * FROM users WHERE google_id=?", (google_id,)).fetchone()
+    else:
+        # Update existing user info if empty
+        conn.execute("UPDATE users SET google_id=?, email=COALESCE(email, ?), avatar=COALESCE(avatar, ?) WHERE id=?", 
+                     (google_id, email, picture, user["id"]))
+        conn.commit()
+        user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+        
+    conn.close()
+    if "password" in user: del user["password"]
+    
+    token = secrets.token_hex(18)
+    TOKENS[token] = user
+    return jsonify({"token": token, "user": user})
+
+@app.route("/api/users/profile", methods=["PUT"])
+def update_profile():
+    user, err, code = require_user()
+    if not user: return err, code
+    
+    body = request.get_json() or {}
+    conn = connect()
+    conn.execute('''UPDATE users SET display_name=?, phone=?, preferred_position=?, shirt_number=?, bio=?, player_id=? 
+                    WHERE id=?''',
+                 (body.get("display_name", user.get("display_name")), 
+                  body.get("phone", ""), 
+                  body.get("preferred_position", ""), 
+                  safe_int(body.get("shirt_number"), 0) or None, 
+                  body.get("bio", ""), 
+                  safe_int(body.get("player_id"), 0) or None,
+                  user["id"]))
+    conn.commit()
+    updated_user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    conn.close()
+    if "password" in updated_user: del updated_user["password"]
+    
+    # Update token session data
+    auth = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    if auth in TOKENS: TOKENS[auth] = updated_user
+    
+    socketio.emit("user_updated", updated_user)
+    return jsonify(updated_user)
+
+@app.route("/api/users/profile/photo", methods=["POST"])
+def update_profile_photo():
+    user, err, code = require_user()
+    if not user: return err, code
+    
+    if "photo" not in request.files: return jsonify({"error": "No file"}), 400
+    file = request.files["photo"]
+    if file.filename == "": return jsonify({"error": "Empty file"}), 400
+    
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]: return jsonify({"error": "Invalid format"}), 400
+    
+    filename = f"avatar_{user['id']}_{int(datetime.now().timestamp())}{ext}"
+    path = UPLOAD_DIR / filename
+    file.save(path)
+    
+    url = f"/uploads/{filename}"
+    conn = connect()
+    conn.execute("UPDATE users SET avatar=? WHERE id=?", (url, user["id"]))
+    conn.commit()
+    updated_user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    conn.close()
+    
+    if "password" in updated_user: del updated_user["password"]
+    auth = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    if auth in TOKENS: TOKENS[auth] = updated_user
+    
+    socketio.emit("user_updated", updated_user)
+    return jsonify({"avatar": url})
     if not user:
         return jsonify({"error": "Credenciales inválidas"}), 401
     token = secrets.token_hex(18)
@@ -554,6 +677,10 @@ def match_payload():
         "lineup_home": json.dumps(body.get("lineup_home") or [None]*7),
         "lineup_away": json.dumps(body.get("lineup_away") or [None]*7),
         "available_players": json.dumps(body.get("available_players") or []),
+        "has_stream": safe_int(body.get("has_stream"), 0),
+        "stream_url": (body.get("stream_url") or "").strip(),
+        "video_url": (body.get("video_url") or "").strip(),
+        "stream_desc": (body.get("stream_desc") or "").strip(),
     }
 
 @app.route("/api/matches", methods=["GET"])
@@ -576,8 +703,8 @@ def create_match():
     p = match_payload()
     conn = connect()
     cur = conn.cursor()
-    cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away, available_players)
-    VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away, :available_players)''', p)
+    cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away, available_players, has_stream, stream_url, video_url, stream_desc)
+    VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away, :available_players, :has_stream, :stream_url, :video_url, :stream_desc)''', p)
     conn.commit()
     row = conn.execute("SELECT * FROM matches WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
@@ -598,7 +725,8 @@ def update_match(match_id):
     
     conn = connect()
     conn.execute('''UPDATE matches SET title=:title, match_date=:match_date, venue=:venue, score_home=:score_home,
-    score_away=:score_away, status=:status, lineup_home=:lineup_home, lineup_away=:lineup_away, available_players=:available_players WHERE id=:id''', p)
+    score_away=:score_away, status=:status, lineup_home=:lineup_home, lineup_away=:lineup_away, available_players=:available_players,
+    has_stream=:has_stream, stream_url=:stream_url, video_url=:video_url, stream_desc=:stream_desc WHERE id=:id''', p)
     conn.commit()
     row = conn.execute("SELECT * FROM matches WHERE id=?", (match_id,)).fetchone()
     conn.close()
@@ -656,8 +784,9 @@ def create_highlight():
     if not user: return err, code
     b = request.get_json() or {}
     conn = connect(); cur = conn.cursor()
-    cur.execute("INSERT INTO highlights (title, minute, description) VALUES (?, ?, ?)",
-                ((b.get("title") or "Momento").strip(), (b.get("minute") or "").strip(), (b.get("description") or "").strip()))
+    cur.execute("INSERT INTO highlights (title, minute, description, media_path, media_type, moment_type, match_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ((b.get("title") or "Momento").strip(), (b.get("minute") or "").strip(), (b.get("description") or "").strip(),
+                 (b.get("media_path") or "").strip(), (b.get("media_type") or "").strip(), (b.get("moment_type") or "otro").strip(), safe_int(b.get("match_id"), 0) or None))
     conn.commit(); row = conn.execute("SELECT * FROM highlights WHERE id=?", (cur.lastrowid,)).fetchone(); conn.close()
     socketio.emit("data_changed", {"type": "highlights"})
     return jsonify(row), 201
@@ -669,6 +798,26 @@ def delete_highlight(highlight_id):
     conn = connect(); conn.execute("DELETE FROM highlights WHERE id=?", (highlight_id,)); conn.commit(); conn.close()
     socketio.emit("data_changed", {"type": "highlights"})
     return jsonify({"ok": True})
+
+@app.route("/api/upload-media", methods=["POST"])
+def upload_media():
+    user, err, code = require_roles({"admin"})
+    if not user: return err, code
+    if "media" not in request.files: return jsonify({"error": "No file"}), 400
+    file = request.files["media"]
+    if file.filename == "": return jsonify({"error": "Empty file"}), 400
+    
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".webm"]: 
+        return jsonify({"error": "Formato inválido"}), 400
+    
+    media_type = "video" if ext in [".mp4", ".webm"] else "image"
+    filename = f"media_{int(datetime.now().timestamp())}{ext}"
+    path = UPLOAD_DIR / filename
+    file.save(path)
+    
+    return jsonify({"url": f"/uploads/{filename}", "type": media_type})
+
 
 @app.route("/api/settings", methods=["POST"])
 def update_settings():
