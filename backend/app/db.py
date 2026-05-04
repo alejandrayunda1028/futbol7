@@ -155,6 +155,7 @@ def init_db():
         ("shirt_number", "ALTER TABLE users ADD COLUMN shirt_number INTEGER DEFAULT NULL"),
         ("bio", "ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''"),
         ("player_id", "ALTER TABLE users ADD COLUMN player_id INTEGER DEFAULT NULL"),
+        ("google_client_id", "ALTER TABLE settings ADD COLUMN google_client_id TEXT DEFAULT ''"),
     ]:
         try:
             cur.execute(ddl)

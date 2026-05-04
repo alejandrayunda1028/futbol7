@@ -158,6 +158,12 @@ async function load(fullRender = true){
     const data = await api("/api/bootstrap");
     Object.assign(state, data);
     applyTheme();
+    if (state.settings?.google_client_id) {
+      window.google?.accounts.id.initialize({
+        client_id: state.settings.google_client_id,
+        callback: window.handleGoogleLogin
+      });
+    }
     if(!socket || !socket.connected) initSocket();
     if(fullRender) { shell(); render(); }
   }catch(err){
@@ -190,6 +196,15 @@ function shell(){
   const live = Number(state.settings.live_enabled) && state.settings.live_url;
   $("#liveBtn").classList.toggle("hidden", !live);
   $("#liveBtn").href = state.settings.live_url || "#";
+
+  const avatarEl = $(".user-avatar");
+  if(state.user.avatar) {
+    avatarEl.innerHTML = `<img src="${esc(state.user.avatar)}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
+    avatarEl.style.cursor = "pointer";
+    avatarEl.onclick = () => { state.section = "perfil"; render(); };
+  } else {
+    avatarEl.innerHTML = `<i class="fa-solid fa-user"></i>`;
+  }
 }
 function render(){
   shell();
@@ -270,42 +285,53 @@ async function uploadProfilePhoto(e) {
 
 function perfil() {
   const u = state.user;
-  const avatarHtml = u.avatar ? `<img src="${esc(u.avatar)}" style="width:100px; height:100px; border-radius:50%; object-fit:cover; border:2px solid var(--primary)">` : `<div style="width:100px; height:100px; border-radius:50%; background:var(--bg-panel-solid); display:flex; align-items:center; justify-content:center; font-size:3rem; border:2px solid var(--border)"><i class="fa-solid fa-user"></i></div>`;
+  const avatarHtml = u.avatar ? `<img src="${esc(u.avatar)}" style="width:140px; height:140px; border-radius:50%; object-fit:cover; border:4px solid var(--primary); box-shadow:0 0 20px rgba(99,102,241,0.3)">` : `<div style="width:140px; height:140px; border-radius:50%; background:var(--bg-panel-solid); display:flex; align-items:center; justify-content:center; font-size:4rem; border:2px solid var(--border); color:var(--muted)"><i class="fa-solid fa-user"></i></div>`;
   
-  const playersOptions = state.players.map(p => `<option value="${p.id}" ${u.player_id === p.id ? 'selected' : ''}>#${p.number} ${esc(p.name)}</option>`).join("");
+  const playersOptions = state.players.map(p => `<option value="${p.id}" ${Number(u.player_id) === Number(p.id) ? 'selected' : ''}>#${p.number} ${esc(p.name)}</option>`).join("");
   
   return `
-  <section class="panel glass">
-    <div class="row" style="align-items:flex-start">
-      <div style="display:flex; flex-direction:column; align-items:center; gap:16px;">
-        ${avatarHtml}
-        <label class="btn ghost btn-small" style="cursor:pointer">
-          <i class="fa-solid fa-camera"></i> Cambiar Foto
+  <section class="panel glass" style="max-width:900px; margin:0 auto;">
+    <div style="text-align:center; margin-bottom:40px; position:relative;">
+      <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width:300px; height:300px; background:radial-gradient(circle, var(--primary) 0%, transparent 70%); opacity:0.1; z-index:-1;"></div>
+      ${avatarHtml}
+      <div style="margin-top:-30px;">
+        <label class="btn primary btn-small" style="cursor:pointer; border-radius:50%; width:44px; height:44px; padding:0; box-shadow:var(--shadow)">
+          <i class="fa-solid fa-camera"></i>
           <input type="file" id="profilePhoto" hidden accept="image/*">
         </label>
       </div>
-      <form id="profileForm" class="form" style="flex:1">
-        <h3>Información Personal</h3>
-        <label>Nombre a Mostrar <input name="display_name" value="${esc(u.display_name)}" required></label>
-        <label>Teléfono <input name="phone" value="${esc(u.phone || '')}"></label>
-        <div class="row">
-          <label>Posición Preferida <input name="preferred_position" value="${esc(u.preferred_position || '')}" placeholder="Ej. Medio Campo"></label>
-          <label>Número Camiseta <input type="number" name="shirt_number" value="${u.shirt_number || ''}" style="width:80px"></label>
-        </div>
-        <label class="full">Acerca de mi <textarea name="bio" rows="3">${esc(u.bio || '')}</textarea></label>
-        
-        <h3 style="margin-top:24px">Vincular con Plantilla</h3>
-        <p class="muted" style="margin-bottom:12px;">Asocia tu cuenta a un jugador en la plantilla para sincronizar estadísticas.</p>
-        <label class="full">Jugador Asociado
-          <select name="player_id">
-            <option value="">-- No asociado --</option>
-            ${playersOptions}
+      <h2 style="margin-top:20px; font-size:2rem;">${esc(u.display_name)}</h2>
+      <p class="muted">@${esc(u.username)} · ${esc(u.email || 'Sin correo vinculado')}</p>
+    </div>
+
+    <form id="profileForm" class="form">
+      <div class="form-grid">
+        <label>Nombre Público <input name="display_name" value="${esc(u.display_name)}" required></label>
+        <label>Teléfono <input name="phone" value="${esc(u.phone || '')}" placeholder="+57..."></label>
+        <label>Posición Preferida 
+          <select name="preferred_position">
+            <option value="">No definida</option>
+            ${slots.map(s => `<option value="${s}" ${u.preferred_position===s?'selected':''}>${s}</option>`).join("")}
           </select>
         </label>
+        <label>Número Camiseta <input type="number" name="shirt_number" value="${u.shirt_number || ''}" placeholder="Ej: 10"></label>
+        
+        <div class="full" style="background:rgba(255,255,255,0.03); padding:20px; border-radius:12px; border:1px solid var(--border);">
+          <h3 style="margin-bottom:8px; display:flex; align-items:center; gap:10px;"><i class="fa-solid fa-link" style="color:var(--primary)"></i> Vincular con Jugador de Plantilla</h3>
+          <p class="muted" style="margin-bottom:16px;">Si eres un jugador registrado en el club, selecciónate aquí para vincular tus estadísticas automáticamente.</p>
+          <select name="player_id" style="background:rgba(0,0,0,0.4)">
+            <option value="">-- Buscar en la lista --</option>
+            ${playersOptions}
+          </select>
+        </div>
 
-        <button class="btn primary glow-on-hover" style="align-self:flex-start; margin-top:16px;">Guardar Perfil</button>
-      </form>
-    </div>
+        <label class="full">Biografía / Notas <textarea name="bio" rows="3" placeholder="Cuéntanos un poco sobre tu estilo de juego...">${esc(u.bio || '')}</textarea></label>
+      </div>
+
+      <div style="display:flex; justify-content:center; margin-top:20px;">
+        <button class="btn primary glow-on-hover" style="padding:14px 40px; font-size:1.1rem;"><i class="fa-solid fa-floppy-disk"></i> Actualizar Perfil</button>
+      </div>
+    </form>
   </section>
   `;
 }
@@ -564,6 +590,10 @@ function partido(){
 function lineupSelectors(side, selected=[], availIds=[], canEdit){
   const list = state.players.filter(p => availIds.includes(p.id));
   
+  // Collect all currently selected IDs in the whole form to disable them in other selects
+  const allSelectedIds = [];
+  $$(".lineup-select").forEach(s => { if(s.value) allSelectedIds.push(Number(s.value)); });
+
   return slots.map((label,i)=>{
     const selVal = selected[i];
     let extraOpt = "";
@@ -582,7 +612,12 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit){
         <select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'} style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
           <option value="">Sin asignar</option>
           ${extraOpt}
-          ${list.map(pl=>`<option value="${pl.id}" ${Number(selVal)===Number(pl.id)?"selected":""}>#${pl.number} ${esc(pl.name)} (⭐${pl.rating})</option>`).join("")}
+          ${list.map(pl => {
+            const isPickedByOther = allSelectedIds.includes(Number(pl.id)) && Number(selVal) !== Number(pl.id);
+            return `<option value="${pl.id}" ${Number(selVal)===Number(pl.id)?"selected":""} ${isPickedByOther ? 'disabled' : ''}>
+              #${pl.number} ${esc(pl.name)} (⭐${pl.rating}) ${isPickedByOther ? '— Ocupado' : ''}
+            </option>`;
+          }).join("")}
         </select>
       </div>
     </label>`;
@@ -759,6 +794,7 @@ function ajustes(){
 
         <label class="full">URL del En Vivo<input name="live_url" value="${esc(s.live_url || "")}" ${isAdmin?'':'readonly'}></label>
         <label>En Vivo (Estado)<select name="live_enabled" ${isAdmin?'':'disabled'}><option value="0">Apagado</option><option value="1" ${Number(s.live_enabled)?"selected":""}>Activo</option></select></label>
+        <label>Google Client ID<input name="google_client_id" value="${esc(s.google_client_id || "")}" placeholder="123-abc.apps.googleusercontent.com" ${isAdmin?'':'readonly'}></label>
         
         <div class="full" style="margin-top:16px;"><button class="btn primary glow-on-hover"><i class="fa-solid fa-save"></i> Guardar Ajustes</button></div>
         <div id="settingsMsg" class="full"></div>
