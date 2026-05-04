@@ -4,8 +4,9 @@ const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 const nav = [
   ["inicio", "Inicio", "fa-house"],
   ["perfil", "Mi Perfil", "fa-user"],
-  ["jugadores", "Plantilla General", "fa-users"],
+  ["jugadores", "Plantilla", "fa-users"],
   ["partido", "Partido 7v7", "fa-map"],
+  ["usuarios", "Usuarios", "fa-user-shield"],
   ["contenido", "Videos", "fa-video"],
   ["ajustes", "Ajustes", "fa-gear"]
 ];
@@ -104,18 +105,25 @@ function applyTheme() {
   
   if (state.settings?.app_bg_color) {
     document.body.style.backgroundColor = state.settings.app_bg_color;
-    document.body.style.backgroundImage = 'none'; // Overrides theme gradient
+    document.body.style.backgroundImage = 'none';
   } else {
     document.body.style.backgroundColor = '';
     document.body.style.backgroundImage = '';
   }
 }
 
+window.toggleAuth = (isReg) => {
+  $("#loginBox").classList.toggle("hidden", isReg);
+  $("#registerBox").classList.toggle("hidden", !isReg);
+};
+
 $("#loginForm").addEventListener("submit", async (e)=>{
   e.preventDefault();
   $("#loginMsg").textContent = "";
   const btn = e.target.querySelector("button");
+  const originalHtml = btn.innerHTML;
   btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
+  btn.disabled = true;
   try{
     const f = Object.fromEntries(new FormData(e.currentTarget).entries());
     const data = await api("/api/login", {method:"POST", body:JSON.stringify(f)});
@@ -124,7 +132,32 @@ $("#loginForm").addEventListener("submit", async (e)=>{
     await load();
   }catch(err){ 
     $("#loginMsg").textContent = err.message; 
-    btn.innerHTML = `Ingresar al Studio`;
+    btn.innerHTML = originalHtml;
+    btn.disabled = false;
+  }
+});
+
+$("#registerForm")?.addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  $("#registerMsg").textContent = "";
+  const f = Object.fromEntries(new FormData(e.currentTarget).entries());
+  if(f.password !== f.confirm_password) return $("#registerMsg").textContent = "Las contraseñas no coinciden";
+  
+  const btn = e.target.querySelector("button");
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Registrando...`;
+  btn.disabled = true;
+  
+  try{
+    const data = await api("/api/register", {method:"POST", body:JSON.stringify(f)});
+    state.token = data.token;
+    localStorage.f7_clean_token = state.token;
+    await load();
+    toast("Registro exitoso. ¡Bienvenido!");
+  }catch(err){ 
+    $("#registerMsg").textContent = err.message; 
+    btn.innerHTML = originalHtml;
+    btn.disabled = false;
   }
 });
 
@@ -180,6 +213,7 @@ function shell(){
 
   const filteredNav = nav.filter(n => {
     if (n[0] === "ajustes") return isAdmin;
+    if (n[0] === "usuarios") return isAdmin;
     return true;
   });
 
@@ -201,8 +235,13 @@ function shell(){
 }
 function render(){
   shell();
-  const views = {inicio, perfil, jugadores, partido, contenido, ajustes};
-  $("#content").innerHTML = views[state.section]();
+  const views = {inicio, perfil, jugadores, partido, contenido, ajustes, usuarios};
+  const viewFunc = views[state.section];
+  if (viewFunc) {
+    $("#content").innerHTML = viewFunc();
+  } else {
+    $("#content").innerHTML = empty("Sección no encontrada.");
+  }
   $("#pageTitle").textContent = nav.find(n=>n[0]===state.section)?.[1] || "";
   
   bind();
@@ -219,7 +258,6 @@ function bind(){
 
   $("#searchPlayers")?.addEventListener("input", (e) => {
     state.searchPlayers = e.target.value;
-    // Debounced or simple re-render
     const grid = $(".grid-4", $("#content"));
     const q = state.searchPlayers.toLowerCase();
     const filtered = state.players.filter(p => 
@@ -232,6 +270,29 @@ function bind(){
     if(grid) grid.innerHTML = filtered.map(playerCard).join("") || empty("No se encontraron jugadores.");
   });
   $$("[data-del-player]").forEach(b=>b.onclick=()=>del("players", b.dataset.delPlayer, "jugadores"));
+
+  // Player type toggles in jugadores
+  $$(".ptype-btn").forEach(b => b.onclick = () => {
+    const type = b.dataset.type;
+    $$(".ptype-btn").forEach(btn => btn.classList.remove("active"));
+    b.classList.add("active");
+    $("#playerTypeInput").value = type;
+    
+    $("#regField").classList.toggle("hidden", type !== 'registrado');
+    $("#manualFields").classList.toggle("hidden", type === 'registrado' || type === 'nn');
+    $("#nnMsg").classList.toggle("hidden", type !== 'nn');
+    
+    if(type === 'nn') {
+      const nextNN = state.players.filter(p => p.is_nn).length + 1;
+      $("#playerNameInput").value = `NN ${nextNN}`;
+      $("#playerNameInput").required = false;
+    } else {
+      $("#playerNameInput").required = true;
+      if(type === 'registrado') $("#playerNameInput").value = "";
+    }
+  });
+
+  $("#searchCodeBtn")?.addEventListener("click", searchPlayerByID);
 
   $("#matchForm")?.addEventListener("submit", saveMatch);
   $("#clearMatch")?.addEventListener("click", ()=>{state.editMatch=null;render();});
@@ -294,6 +355,7 @@ async function uploadProfilePhoto(e) {
 
 function perfil() {
   const u = state.user;
+  const p = state.players.find(x => x.id === u.player_id);
   const avatarHtml = u.avatar ? `<img src="${esc(u.avatar)}" style="width:140px; height:140px; border-radius:50%; object-fit:cover; border:4px solid var(--primary); box-shadow:0 0 20px rgba(99,102,241,0.3)">` : `<div style="width:140px; height:140px; border-radius:50%; background:var(--bg-panel-solid); display:flex; align-items:center; justify-content:center; font-size:4rem; border:2px solid var(--border); color:var(--muted)"><i class="fa-solid fa-user"></i></div>`;
   
   const playersOptions = state.players.map(p => `<option value="${p.id}" ${Number(u.player_id) === Number(p.id) ? 'selected' : ''}>#${p.number} ${esc(p.name)}</option>`).join("");
@@ -311,6 +373,12 @@ function perfil() {
       </div>
       <h2 style="margin-top:20px; font-size:2rem;">${esc(u.display_name)}</h2>
       <p class="muted">@${esc(u.username)} · ${esc(u.email || 'Sin correo vinculado')}</p>
+      
+      <div style="margin-top:16px; background:rgba(0,0,0,0.2); padding:12px; border-radius:12px; display:inline-flex; align-items:center; gap:12px; border:1px solid var(--border);">
+        <span style="font-weight:600; color:var(--primary);">Código de Jugador:</span>
+        <code style="font-size:1.2rem; font-weight:800; color:#fff;">${esc(p?.player_code || 'No asignado')}</code>
+        ${p?.player_code ? `<button class="btn ghost btn-small" onclick="navigator.clipboard.writeText('${p.player_code}'); toast('ID Copiado');" title="Copiar ID"><i class="fa-solid fa-copy"></i></button>` : ''}
+      </div>
     </div>
 
     <form id="profileForm" class="form">
@@ -451,22 +519,41 @@ function jugadores(){
     <article class="panel glass">
       <p class="eyebrow">${state.editPlayer ? "Editar" : "Nuevo jugador"}</p>
       <h2>${state.editPlayer ? "Editar jugador" : "Registrar jugador"}</h2>
+      
+      <div style="display:flex; gap:10px; margin-bottom:20px; background:rgba(0,0,0,0.2); padding:6px; border-radius:12px;">
+        <button class="btn ghost ptype-btn active" data-type="registrado" style="flex:1">Registrado</button>
+        <button class="btn ghost ptype-btn" data-type="invitado" style="flex:1">Invitado</button>
+        <button class="btn ghost ptype-btn" data-type="nn" style="flex:1">NN / Sin datos</button>
+      </div>
+
       <form id="playerForm" class="form-grid">
-        <label class="full">Nombre Completo<input name="name" required placeholder="Ej: Ricardo M"></label>
-        <label>Correo (Opcional)<input name="email" type="email"></label>
-        <label>Teléfono (Opcional)<input name="phone"></label>
-        <label>Número Camiseta<input name="number" type="number" min="0" max="99" value="0"></label>
-        <label>Posición Preferida<input name="position" placeholder="Delantero"></label>
-        <label>Tipo de Jugador
-          <select name="is_registered">
-            <option value="1">Registrado (ID Único)</option>
-            <option value="0">Invitado / Manual</option>
-          </select>
-        </label>
-        <label>Calificación Inicial (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10"></label>
+        <input type="hidden" name="player_type" id="playerTypeInput" value="registrado">
+        
+        <div id="regField" class="full" style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:12px;">
+          <label>Buscar por Código (JUG-XXXX)
+            <div class="row">
+              <input id="searchCodeInput" placeholder="Ej: JUG-0001">
+              <button type="button" class="btn primary" id="searchCodeBtn"><i class="fa-solid fa-magnifying-glass"></i></button>
+            </div>
+          </label>
+        </div>
+
+        <div id="manualFields" class="full form-grid" style="grid-template-columns: 1fr 1fr; gap:12px;">
+          <label class="full">Nombre Completo<input name="name" id="playerNameInput" required placeholder="Ej: Ricardo M"></label>
+          <label>Correo (Opcional)<input name="email" type="email"></label>
+          <label>Teléfono (Opcional)<input name="phone"></label>
+          <label>Número Camiseta<input name="number" type="number" min="0" max="99" value="0"></label>
+          <label>Posición Preferida<input name="position" placeholder="Delantero"></label>
+          <label>Calificación Inicial (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10"></label>
+        </div>
+
+        <div id="nnMsg" class="full hidden" style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:12px; color:var(--muted);">
+          <p><i class="fa-solid fa-circle-info"></i> Se agregará un jugador sin datos personales con un alias automático.</p>
+        </div>
         
         <label class="full">Foto del jugador (Generar Tarjeta)<input id="playerPhoto" type="file" accept="image/*"></label>
         <input name="photo_path" type="hidden"><input name="poster_path" type="hidden">
+        
         <div class="full row" style="margin-top:10px;">
           <button class="btn primary glow-on-hover"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar" : "Crear Jugador"}</button>
           <button type="button" class="btn ghost" id="clearPlayer">Cancelar</button>
@@ -497,12 +584,35 @@ function jugadores(){
 }
 function getPlayerForm(){
   const f = Object.fromEntries(new FormData($("#playerForm")).entries());
+  const type = f.player_type || 'registrado';
   return {
     ...f,
+    name: f.name || $("#playerNameInput").value,
     number:+f.number||0, goals:+f.goals||0, assists:+f.assists||0,
     matches_played:+f.matches_played||0, rating:+f.rating||0,
-    is_registered: f.is_registered === "1"
+    is_registered: type === "registrado",
+    is_guest: type === "invitado",
+    is_nn: type === "nn"
   };
+}
+
+async function searchPlayerByID() {
+  const code = $("#searchCodeInput").value.trim();
+  if(!code) return toast("Ingresa un código");
+  try {
+    const p = await api(`/api/players/search?code=${code.toUpperCase()}`);
+    toast("Jugador encontrado: " + p.name);
+    $("#playerNameInput").value = p.name;
+    const f = $("#playerForm");
+    f.name.value = p.name;
+    f.email.value = p.email || "";
+    f.phone.value = p.phone || "";
+    f.number.value = p.number || 0;
+    f.position.value = p.position || "";
+    if(p.poster_path) $("#preview").innerHTML = poster(p);
+  } catch(err) {
+    toast("No se encontró ningún jugador con ese ID", true);
+  }
 }
 async function uploadPhoto(e){
   const file = e.target.files[0]; if(!file) return;
@@ -680,7 +790,7 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit){
           ${list.map(pl => {
             const isPickedByOther = allSelectedIds.includes(Number(pl.id)) && Number(selVal) !== Number(pl.id);
             return `<option value="${pl.id}" ${Number(selVal)===Number(pl.id)?"selected":""} ${isPickedByOther ? 'disabled' : ''}>
-              #${pl.number} ${esc(pl.nickname || pl.name)} (⭐${pl.rating}) ${isPickedByOther ? '— Ocupado' : ''}
+              ${esc(pl.player_code || '')} — #${pl.number} ${esc(pl.nickname || pl.name)} (⭐${pl.rating}) ${isPickedByOther ? '— Ocupado' : ''}
             </option>`;
           }).join("")}
         </select>
@@ -995,6 +1105,62 @@ window.removeManager = async (matchId, playerId) => {
     await load(false);
     render();
   } catch (err) { toast(err.message); }
+};
+
+function usuarios() {
+  if (state.user.role !== 'ADMIN') return empty("No tienes permiso para ver esta sección.");
+  
+  if (!state._users) {
+    api("/api/users").then(data => {
+      state._users = data;
+      render();
+    });
+    return empty("Cargando usuarios...");
+  }
+
+  return `
+  <section class="panel glass">
+    <h2>Gestión de Usuarios y Roles</h2>
+    <p class="muted" style="margin-bottom:20px;">Solo el Administrador puede asignar el rol de Capitán o cambiar privilegios globales.</p>
+    
+    <div class="item-list">
+      ${state._users.map(u => {
+        const p = state.players.find(x => x.id === u.player_id);
+        return `<div class="item-row" style="padding:16px;">
+          <div style="display:flex; align-items:center; gap:16px; flex:1;">
+            <div style="width:44px; height:44px; border-radius:50%; background:rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:center; border:1px solid var(--border);">
+              <i class="fa-solid fa-user"></i>
+            </div>
+            <div>
+              <b style="font-size:1.1rem">${esc(u.display_name)}</b>
+              <p class="muted">@${esc(u.username)} · ${p ? esc(p.player_code) : 'Sin perfil de jugador'}</p>
+            </div>
+          </div>
+          <div class="row" style="gap:20px;">
+            <select onchange="updateRole(${u.id}, this.value)" style="background:rgba(0,0,0,0.3); border:1px solid var(--border); padding:8px 12px; border-radius:8px; min-width:140px;">
+              <option value="PLAYER" ${u.role==='PLAYER'?'selected':''}>PLAYER</option>
+              <option value="CAPTAIN" ${u.role==='CAPTAIN'?'selected':''}>CAPTAIN</option>
+              <option value="ADMIN" ${u.role==='ADMIN'?'selected':''}>ADMIN</option>
+            </select>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+  </section>
+  `;
+}
+
+window.updateRole = async (userId, newRole) => {
+  try {
+    await api(`/api/users/${userId}/role`, {
+      method: "PUT",
+      body: JSON.stringify({ role: newRole })
+    });
+    toast("Rol actualizado correctamente");
+    state._users = null; // force reload
+    await load(false);
+    render();
+  } catch (err) { toast(err.message, true); }
 };
 
 load();

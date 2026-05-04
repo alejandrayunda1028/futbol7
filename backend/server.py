@@ -1,6 +1,7 @@
 import json
 import mimetypes
 import os
+from datetime import datetime
 import secrets
 import sys
 import urllib.parse
@@ -404,7 +405,14 @@ def serve_static(path):
         return send_from_directory(app.static_folder, path)
     return send_from_directory(app.static_folder, "index.html")
 
-@app.route("/api/login", methods=["POST"])
+@app.route("/api/users", methods=["GET"])
+def get_users():
+    admin, err, code = require_roles({"ADMIN"})
+    if not admin: return err, code
+    conn = connect()
+    rows = conn.execute("SELECT id, username, display_name, role, player_id FROM users").fetchall()
+    conn.close()
+    return jsonify(rows)
 def login():
     body = request.get_json() or {}
     conn = connect()
@@ -422,6 +430,59 @@ def login():
     token = secrets.token_hex(18)
     TOKENS[token] = user
     return jsonify({"token": token, "user": user})
+
+@app.route("/api/register", methods=["POST"])
+def register():
+    body = request.get_json() or {}
+    username = (body.get("username") or "").strip()
+    password = (body.get("password") or "").strip()
+    display_name = (body.get("display_name") or "").strip()
+    phone = (body.get("phone") or "").strip()
+    
+    if not username or not password or not display_name:
+        return jsonify({"error": "Todos los campos son obligatorios"}), 400
+        
+    conn = connect()
+    existing = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if existing:
+        conn.close()
+        return jsonify({"error": "El usuario ya existe"}), 400
+        
+    cur = conn.cursor()
+    # Create player profile first
+    p_code = generate_player_code(conn)
+    cur.execute('''INSERT INTO players (player_code, name, email, phone, is_registered) 
+                   VALUES (?, ?, ?, ?, 1)''', (p_code, display_name, username if "@" in username else "", phone))
+    player_id = cur.lastrowid
+    
+    # Create user
+    cur.execute('''INSERT INTO users (username, password, role, display_name, phone, player_id) 
+                   VALUES (?, ?, 'PLAYER', ?, ?, ?)''', (username, password, display_name, phone, player_id))
+    conn.commit()
+    user = conn.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    
+    if "password" in user: del user["password"]
+    token = secrets.token_hex(18)
+    TOKENS[token] = user
+    return jsonify({"token": token, "user": user}), 201
+
+@app.route("/api/users/<int:u_id>/role", methods=["PUT"])
+def update_user_role(u_id):
+    admin, err, code = require_roles({"ADMIN"})
+    if not admin: return err, code
+    
+    body = request.get_json() or {}
+    new_role = body.get("role")
+    if new_role not in ["ADMIN", "CAPTAIN", "PLAYER"]:
+        return jsonify({"error": "Rol inválido"}), 400
+        
+    conn = connect()
+    conn.execute("UPDATE users SET role=? WHERE id=?", (new_role, u_id))
+    conn.commit()
+    conn.close()
+    socketio.emit("data_changed", {"type": "users"})
+    return jsonify({"ok": True})
 
 @app.route("/api/users/profile", methods=["PUT"])
 def update_profile():
@@ -575,8 +636,23 @@ def player_payload():
         "assists": safe_int(body.get("assists"), 0),
         "matches_played": safe_int(body.get("matches_played"), 0),
         "rating": safe_float(body.get("rating"), 0),
-        "is_registered": 1 if body.get("is_registered", True) else 0
+        "is_registered": 1 if body.get("is_registered", True) else 0,
+        "is_guest": 1 if body.get("is_guest", False) else 0,
+        "is_nn": 1 if body.get("is_nn", False) else 0
     }
+
+@app.route("/api/players/search", methods=["GET"])
+def search_player_by_code():
+    user, err, code = require_user()
+    if not user: return err, code
+    code_query = request.args.get("code", "").strip().upper()
+    if not code_query: return jsonify({"error": "ID requerido"}), 400
+    
+    conn = connect()
+    player = conn.execute("SELECT * FROM players WHERE player_code=?", (code_query,)).fetchone()
+    conn.close()
+    if not player: return jsonify({"error": "No encontrado"}), 404
+    return jsonify(player)
 
 @app.route("/api/players", methods=["GET"])
 def get_players():
@@ -589,15 +665,20 @@ def get_players():
 
 @app.route("/api/players", methods=["POST"])
 def create_player():
-    user, err, code = require_roles({"ADMIN"})
+    user, err, code = require_roles({"ADMIN", "CAPTAIN"})
     if not user: return err, code
     p = player_payload()
     conn = connect()
     cur = conn.cursor()
-    p["player_code"] = generate_player_code(conn)
+    
+    if p.get("is_registered"):
+        p["player_code"] = generate_player_code(conn)
+    else:
+        p["player_code"] = None
+        
     cur.execute('''INSERT INTO players
-    (player_code, is_registered, team_side, name, nickname, email, phone, number, position, photo_path, poster_path, goals, assists, matches_played, rating)
-    VALUES (:player_code, :is_registered, :team_side, :name, :nickname, :email, :phone, :number, :position, :photo_path, :poster_path, :goals, :assists, :matches_played, :rating)''', p)
+    (player_code, is_registered, is_guest, is_nn, team_side, name, nickname, email, phone, number, position, photo_path, poster_path, goals, assists, matches_played, rating)
+    VALUES (:player_code, :is_registered, :is_guest, :is_nn, :team_side, :name, :nickname, :email, :phone, :number, :position, :photo_path, :poster_path, :goals, :assists, :matches_played, :rating)''', p)
     conn.commit()
     row = conn.execute("SELECT * FROM players WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
@@ -614,7 +695,7 @@ def update_player(player_id):
     old = conn.execute("SELECT * FROM players WHERE id=?", (player_id,)).fetchone()
     if old and not p["poster_path"]: p["poster_path"] = old.get("poster_path", "")
     if old and not p["photo_path"]: p["photo_path"] = old.get("photo_path", "")
-    conn.execute('''UPDATE players SET is_registered=:is_registered, team_side=:team_side, name=:name, nickname=:nickname, email=:email, phone=:phone, number=:number,
+    conn.execute('''UPDATE players SET is_registered=:is_registered, is_guest=:is_guest, is_nn=:is_nn, team_side=:team_side, name=:name, nickname=:nickname, email=:email, phone=:phone, number=:number,
     position=:position, photo_path=:photo_path, poster_path=:poster_path, goals=:goals, assists=:assists,
     matches_played=:matches_played, rating=:rating, updated_at=CURRENT_TIMESTAMP WHERE id=:id''', p)
     conn.commit()
@@ -690,6 +771,16 @@ def update_match(match_id):
         return jsonify({"error": "No tienes permiso para editar este partido"}), 403
         
     p = match_payload(); p["id"] = match_id
+    
+    # Security: only ADMIN can modify video/stream fields
+    if user["role"] != "ADMIN":
+        old = conn.execute("SELECT has_stream, stream_url, video_url, stream_desc FROM matches WHERE id=?", (match_id,)).fetchone()
+        if old:
+            p["has_stream"] = old["has_stream"]
+            p["stream_url"] = old["stream_url"]
+            p["video_url"] = old["video_url"]
+            p["stream_desc"] = old["stream_desc"]
+
     conn.execute('''UPDATE matches SET title=:title, match_date=:match_date, venue=:venue, score_home=:score_home,
     score_away=:score_away, status=:status, lineup_home=:lineup_home, lineup_away=:lineup_away, available_players=:available_players,
     has_stream=:has_stream, stream_url=:stream_url, video_url=:video_url, stream_desc=:stream_desc WHERE id=:id''', p)

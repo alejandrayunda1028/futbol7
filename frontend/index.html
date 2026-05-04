@@ -25,19 +25,31 @@
       <p class="eyebrow">FUTBOL 7 · PRO STUDIO</p>
       <h1>Colaboración en Tiempo Real</h1>
       <p class="muted">Gestión avanzada y profesional de jugadores, formaciones y estadísticas en un solo lugar.</p>
-      <form id="loginForm" class="form" style="margin-top: 24px;">
-        <label>
-          <i class="fa-solid fa-user"></i>
-          <input name="username" value="admin" required placeholder="Usuario">
-        </label>
-        <label>
-          <i class="fa-solid fa-lock"></i>
-          <input name="password" type="password" value="admin123" required placeholder="Contraseña">
-        </label>
-        <button class="btn primary glow-on-hover">Ingresar al Studio</button>
-        <p class="hint">Admin: <b>admin / admin123</b> <br> Cap: <b>capitan1 / cap123</b></p>
-        <p id="loginMsg" class="error"></p>
-      </form>
+      <div id="loginBox">
+        <form id="loginForm" class="form" style="margin-top: 24px;">
+          <label><i class="fa-solid fa-user"></i><input name="username" value="admin" required placeholder="Usuario"></label>
+          <label><i class="fa-solid fa-lock"></i><input name="password" type="password" value="admin123" required placeholder="Contraseña"></label>
+          <button class="btn primary glow-on-hover">Ingresar al Studio</button>
+          <p id="loginMsg" class="error"></p>
+        </form>
+        <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
+          <p class="muted">¿No tienes cuenta?</p>
+          <button class="btn ghost" onclick="toggleAuth(true)" style="width:100%; margin-top:8px;">Crear Perfil de Jugador</button>
+        </div>
+      </div>
+
+      <div id="registerBox" class="hidden">
+        <form id="registerForm" class="form" style="margin-top: 24px;">
+          <label><i class="fa-solid fa-id-card"></i><input name="display_name" required placeholder="Nombre Completo"></label>
+          <label><i class="fa-solid fa-user"></i><input name="username" required placeholder="Usuario (Email o Alias)"></label>
+          <label><i class="fa-solid fa-phone"></i><input name="phone" placeholder="Teléfono (Opcional)"></label>
+          <label><i class="fa-solid fa-lock"></i><input name="password" type="password" required placeholder="Contraseña"></label>
+          <label><i class="fa-solid fa-lock"></i><input name="confirm_password" type="password" required placeholder="Confirmar Contraseña"></label>
+          <button class="btn primary glow-on-hover">Registrarse</button>
+          <p id="registerMsg" class="error"></p>
+        </form>
+        <button class="btn ghost" onclick="toggleAuth(false)" style="width:100%; margin-top:12px;">Volver al Login</button>
+      </div>
     </article>
   </section>
 

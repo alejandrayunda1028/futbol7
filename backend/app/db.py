@@ -40,7 +40,7 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user',
+        role TEXT NOT NULL DEFAULT 'PLAYER',
         display_name TEXT NOT NULL
     );
 
@@ -66,6 +66,8 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         player_code TEXT UNIQUE,
         is_registered INTEGER DEFAULT 1,
+        is_guest INTEGER DEFAULT 0,
+        is_nn INTEGER DEFAULT 0,
         team_side TEXT NOT NULL DEFAULT 'home',
         name TEXT NOT NULL,
         nickname TEXT DEFAULT '',
@@ -174,6 +176,8 @@ def init_db():
         ("google_client_id", "ALTER TABLE settings ADD COLUMN google_client_id TEXT DEFAULT ''"),
         ("player_code", "ALTER TABLE players ADD COLUMN player_code TEXT UNIQUE"),
         ("is_registered", "ALTER TABLE players ADD COLUMN is_registered INTEGER DEFAULT 1"),
+        ("is_guest", "ALTER TABLE players ADD COLUMN is_guest INTEGER DEFAULT 0"),
+        ("is_nn", "ALTER TABLE players ADD COLUMN is_nn INTEGER DEFAULT 0"),
         ("email", "ALTER TABLE players ADD COLUMN email TEXT DEFAULT ''"),
         ("phone", "ALTER TABLE players ADD COLUMN phone TEXT DEFAULT ''"),
         ("created_at", "ALTER TABLE players ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP"),
@@ -206,5 +210,22 @@ def init_db():
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         ("Próximo Partido", "", "Cancha principal", 0, 0, "programado",
          json.dumps([None]*7), json.dumps([None]*7)))
+    # Ensure all players have a code
+    players_without_code = conn.execute("SELECT id FROM players WHERE player_code IS NULL OR player_code = ''").fetchall()
+    for p in players_without_code:
+        code = f"JUG-{p['id']:04d}"
+        conn.execute("UPDATE players SET player_code=? WHERE id=?", (code, p['id']))
+    
+    # Ensure all users have a player profile
+    users_without_player = conn.execute("SELECT id, display_name, username FROM users WHERE player_id IS NULL").fetchall()
+    for u in users_without_player:
+        # Create player profile
+        cur.execute("INSERT INTO players (name, email, is_registered) VALUES (?, ?, 1)", 
+                    (u['display_name'], u['username'] if "@" in u['username'] else ""))
+        p_id = cur.lastrowid
+        code = f"JUG-{p_id:04d}"
+        conn.execute("UPDATE players SET player_code=? WHERE id=?", (code, p_id))
+        conn.execute("UPDATE users SET player_id=? WHERE id=?", (p_id, u['id']))
+    
     conn.commit()
     conn.close()
