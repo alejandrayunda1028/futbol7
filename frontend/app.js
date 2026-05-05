@@ -346,27 +346,31 @@ function bind(){
   });
 
   $$(".avail-check").forEach(chk => {
-    chk.addEventListener("click", (e) => {
-      e.preventDefault(); // Control manual via modal
+    chk.onclick = async (e) => {
+      e.preventDefault();
       const pid = Number(chk.value);
-      const isChecking = !chk.checked;
-      const p = player(pid);
+      const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
+      if (!match) return;
       
-      if (!p) return;
+      const isAlreadyConvoked = (match.available_players || []).includes(pid);
       
-      if (!isChecking) {
-        // Just remove without modal if unchecking
-        chk.checked = false;
-        saveMatchConvocatoria();
-        return;
+      if (isAlreadyConvoked) {
+        // Remove from convocation
+        if (confirm("¿Quitar a este jugador de la convocatoria?")) {
+          const newAvail = match.available_players.filter(id => id !== pid);
+          await saveSpecificMatchData(match.id, { available_players: newAvail });
+        }
+      } else {
+        // Add to convocation via modal
+        const p = player(pid);
+        if (!p) return;
+        showPlayerModal(p, async () => {
+          const newAvail = [...(match.available_players || []), pid];
+          await saveSpecificMatchData(match.id, { available_players: newAvail });
+          closeModal();
+        }, "Agregar al Partido");
       }
-
-      showPlayerModal(p, () => {
-        chk.checked = true;
-        closeModal();
-        saveMatchConvocatoria();
-      }, "Confirmar Asistencia");
-    });
+    };
   });
 
   $$(".match-meta-input").forEach(sel => {
@@ -934,9 +938,9 @@ function partido(){
         
         <!-- CARD 2: CONVOCATORIA -->
         <article class="panel glass">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-            <h3 style="margin:0;"><i class="fa-solid fa-list-check"></i> 1. Convocatoria del Partido</h3>
-            <span class="badge" style="background:rgba(255,255,255,0.05); color:var(--primary);">${availIds.length} Seleccionados</span>
+          <div style="background:var(--primary-glow); padding:12px; border-radius:12px; margin-bottom:20px; border:1px solid var(--primary); display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-weight:700; font-size:1.1rem;"><i class="fa-solid fa-users"></i> 1. Convocatoria del Partido</span>
+            <span class="badge primary" style="font-size:1rem; padding:6px 12px;">${availIds.length} seleccionados</span>
           </div>
           
           ${canEdit ? `
@@ -945,11 +949,18 @@ function partido(){
             ${state.players.map(p => {
               const isChecked = availIds.includes(p.id);
               return `
-                <label class="avail-item ${isChecked ? 'active' : ''}">
+                <label class="avail-item ${isChecked ? 'active' : ''}" style="position:relative;">
                   <input type="checkbox" value="${p.id}" class="avail-check" ${isChecked ? 'checked' : ''} style="display:none">
-                  <div style="display:flex; align-items:center; gap:8px; justify-content:center;">
-                    <span style="font-family:monospace; opacity:0.5; font-size:0.7rem;">${esc(p.player_code || '---')}</span>
-                    <span style="font-weight:700;">#${p.number} ${esc(p.nickname || p.name)}</span>
+                  <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+                    <div style="display:flex; align-items:center; gap:8px; width:100%; justify-content:space-between; margin-bottom:4px;">
+                       <span style="font-family:monospace; opacity:0.6; font-size:0.7rem;">${esc(p.player_code || '---')}</span>
+                       ${isChecked ? '<i class="fa-solid fa-circle-check" style="color:var(--primary); font-size:0.9rem;"></i>' : '<i class="fa-regular fa-circle" style="opacity:0.3; font-size:0.9rem;"></i>'}
+                    </div>
+                    <strong style="font-size:0.95rem; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%;">${esc(p.name)}</strong>
+                    <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-top:4px;">
+                       <span style="font-size:0.75rem; color:var(--muted)">⭐ ${p.rating || '5.0'}</span>
+                       ${isChecked ? '<span class="badge primary" style="font-size:0.6rem; padding:2px 6px;">CONVOCADO</span>' : ''}
+                    </div>
                   </div>
                 </label>
               `;
@@ -971,13 +982,13 @@ function partido(){
           <p class="muted" style="margin-bottom:16px">Solo se pueden elegir capitanes entre los jugadores convocados.</p>
           <div class="form-grid">
             <label>Capitán Local (Arma Equipo A)
-              <select name="captain_home_id" class="match-meta-input" ${canEdit?'':'disabled'}>
+              <select name="captain_home_id" class="match-meta-input" ${canEdit?'':'disabled'} onchange="saveCaptainChange(this)">
                 <option value="">-- Seleccionar convocado --</option>
                 ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_home_id===p.id?'selected':''}>${esc(p.player_code || '---')} - ${esc(p.name)}</option>`).join('')}
               </select>
             </label>
             <label>Capitán Rival (Arma Equipo B)
-              <select name="captain_away_id" class="match-meta-input" ${canEdit?'':'disabled'}>
+              <select name="captain_away_id" class="match-meta-input" ${canEdit?'':'disabled'} onchange="saveCaptainChange(this)">
                 <option value="">-- Seleccionar convocado --</option>
                 ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_away_id===p.id?'selected':''}>${esc(p.player_code || '---')} - ${esc(p.name)}</option>`).join('')}
               </select>
@@ -1060,7 +1071,7 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit){
       ${photoHtml}
       <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
         <span style="font-size:0.8rem; font-weight:700; color:var(--muted)">${label}</span>
-        <select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'} onchange="render()" style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
+        <select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'} onchange="saveLineupChange(this)" style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
           <option value="">Sin asignar</option>
           ${extraOpt}
           ${list.map(pl => {
@@ -1442,33 +1453,71 @@ window.updateRole = async (userId, newRole) => {
   } catch (err) { toast(err.message, true); }
 };
 
+async function saveSpecificMatchData(matchId, partialData) {
+  const match = state.matches.find(m => m.id === matchId);
+  if (!match) return;
+  
+  try {
+    const res = await api(`/api/matches/${matchId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...match,
+        ...partialData
+      })
+    });
+    
+    // Update local state
+    const idx = state.matches.findIndex(m => m.id === res.id);
+    if(idx > -1) state.matches[idx] = res;
+    
+    toast("Configuración actualizada");
+    render();
+  } catch (err) {
+    toast("Error al guardar: " + err.message, true);
+  }
+}
+
 async function saveMatchConvocatoria() {
+  // This function is now mostly superseded by saveSpecificMatchData
+  // but kept for compatibility if called elsewhere.
   const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
   if (!match) return;
   
   const selectedIds = $$(".avail-check:checked").map(c => Number(c.value));
+  await saveSpecificMatchData(match.id, { available_players: selectedIds });
+}
+
+async function saveLineupChange(el) {
+  const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
+  if (!match) return;
   
-  try {
-    const res = await api(`/api/matches/${match.id}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        ...match,
-        available_players: selectedIds,
-        lineup_home: match.lineup_home,
-        lineup_away: match.lineup_away
-      })
-    });
-    const idx = state.matches.findIndex(m => m.id === res.id);
-    if(idx > -1) state.matches[idx] = res;
-    
-    toast("Convocatoria actualizada");
-    // Don't call render() here because we are in the middle of a click sequence, 
-    // and we want to keep the UI responsive. The load() will update everything.
-    await load(false);
+  const lineupHome = [...match.lineup_home];
+  const lineupAway = [...match.lineup_away];
+  
+  $$(".lineup-select").forEach(s => {
+    const [side, idx] = s.name.split("_");
+    const val = s.value ? Number(s.value) : null;
+    if (side === "home") lineupHome[Number(idx)] = val;
+    else lineupAway[Number(idx)] = val;
+  });
+  
+  await saveSpecificMatchData(match.id, { lineup_home: lineupHome, lineup_away: lineupAway });
+}
+
+window.saveCaptainChange = async (el) => {
+  const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
+  if (!match) return;
+  
+  const cHomeId = Number($(".match-meta-input[name='captain_home_id']")?.value) || null;
+  const cAwayId = Number($(".match-meta-input[name='captain_away_id']")?.value) || null;
+  
+  if (cHomeId && cAwayId && cHomeId === cAwayId) {
+    toast("No puedes seleccionar el mismo capitán para ambos equipos", true);
     render();
-  } catch (err) {
-    toast("Error al guardar convocatoria", true);
+    return;
   }
+  
+  await saveSpecificMatchData(match.id, { captain_home_id: cHomeId, captain_away_id: cAwayId });
 }
 
 load();

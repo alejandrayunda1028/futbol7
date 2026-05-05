@@ -577,6 +577,10 @@ def bootstrap():
     if user["role"] in ["ADMIN", "CAPTAIN"]:
         players = conn.execute("SELECT * FROM players WHERE in_roster=1 ORDER BY team_side, number, name").fetchall()
         matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
+        for m in matches:
+            m["lineup_home"] = parse_json_list(m.get("lineup_home"))
+            m["lineup_away"] = parse_json_list(m.get("lineup_away"))
+            m["available_players"] = parse_json_list(m.get("available_players"))
     else:
         # PLAYER role: Only see matches they are in and players in those matches
         p_id = user.get("player_id")
@@ -598,6 +602,9 @@ def bootstrap():
                     if mgr: in_match = True
                 
                 if in_match:
+                    m["lineup_home"] = lineup_home
+                    m["lineup_away"] = lineup_away
+                    m["available_players"] = avail
                     matches.append(m)
         
         # Players: only those involved in the matches the user can see
