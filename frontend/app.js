@@ -982,13 +982,13 @@ function partido(){
           <p class="muted" style="margin-bottom:16px">Solo se pueden elegir capitanes entre los jugadores convocados.</p>
           <div class="form-grid">
             <label>Capitán Local (Arma Equipo A)
-              <select name="captain_home_id" class="match-meta-input" ${canEdit?'':'disabled'} onchange="saveCaptainChange(this)">
+              <select name="captain_home_id" class="match-meta-input" data-match-id="${match.id}" ${canEdit?'':'disabled'} onchange="saveCaptainChange(this)">
                 <option value="">-- Seleccionar convocado --</option>
                 ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_home_id===p.id?'selected':''}>${esc(p.player_code || '---')} - ${esc(p.name)}</option>`).join('')}
               </select>
             </label>
             <label>Capitán Rival (Arma Equipo B)
-              <select name="captain_away_id" class="match-meta-input" ${canEdit?'':'disabled'} onchange="saveCaptainChange(this)">
+              <select name="captain_away_id" class="match-meta-input" data-match-id="${match.id}" ${canEdit?'':'disabled'} onchange="saveCaptainChange(this)">
                 <option value="">-- Seleccionar convocado --</option>
                 ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_away_id===p.id?'selected':''}>${esc(p.player_code || '---')} - ${esc(p.name)}</option>`).join('')}
               </select>
@@ -1071,7 +1071,7 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit, match){
       ${photoHtml}
       <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
         <span style="font-size:0.8rem; font-weight:700; color:var(--muted)">${label}</span>
-        <select name="${side}_${i}" class="lineup-select" ${canEdit?'':'disabled'} onchange="saveLineupChange(this)" style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
+        <select name="${side}_${i}" class="lineup-select" data-match-id="${match.id}" ${canEdit?'':'disabled'} onchange="saveLineupChange(this)" style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
           <option value="">Sin asignar</option>
           ${extraOpt}
           ${list.map(pl => {
@@ -1520,13 +1520,16 @@ async function saveMatchConvocatoria() {
 }
 
 async function saveLineupChange(el) {
-  const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
+  const matchId = Number(el.dataset.matchId);
+  const match = state.matches.find(m => m.id === matchId);
   if (!match) return;
   
-  const lineupHome = [...match.lineup_home];
-  const lineupAway = [...match.lineup_away];
+  const lineupHome = [...(match.lineup_home || [null,null,null,null,null,null,null])];
+  const lineupAway = [...(match.lineup_away || [null,null,null,null,null,null,null])];
   
-  $$(".lineup-select").forEach(s => {
+  // Scoped search only for THIS match's selects if possible, 
+  // but since we refresh the whole page, let's just be careful.
+  $$(`.lineup-select[data-match-id="${matchId}"]`).forEach(s => {
     const [side, idx] = s.name.split("_");
     const val = s.value ? Number(s.value) : null;
     if (side === "home") lineupHome[Number(idx)] = val;
@@ -1538,11 +1541,12 @@ async function saveLineupChange(el) {
 }
 
 window.saveCaptainChange = async (el) => {
-  const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
+  const matchId = Number(el.dataset.matchId);
+  const match = state.matches.find(m => m.id === matchId);
   if (!match) return;
   
-  const cHomeId = Number($(".match-meta-input[name='captain_home_id']")?.value) || null;
-  const cAwayId = Number($(".match-meta-input[name='captain_away_id']")?.value) || null;
+  const cHomeId = Number($(`.match-meta-input[name='captain_home_id'][data-match-id="${matchId}"]`)?.value) || null;
+  const cAwayId = Number($(`.match-meta-input[name='captain_away_id'][data-match-id="${matchId}"]`)?.value) || null;
   
   if (cHomeId && cAwayId && cHomeId === cAwayId) {
     toast("No puedes seleccionar el mismo capitán para ambos equipos", true);
