@@ -25,6 +25,8 @@ def connect():
 
 
 def parse_json_list(value):
+    if isinstance(value, list):
+        return value
     try:
         data = json.loads(value or "[]")
         return data if isinstance(data, list) else []

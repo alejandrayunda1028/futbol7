@@ -578,73 +578,69 @@ def bootstrap():
     conn = connect()
     settings = conn.execute("SELECT * FROM settings WHERE id=1").fetchone()
     
-    # Filtering logic based on role
-    if user["role"] in ["ADMIN", "CAPTAIN"]:
-        players = conn.execute("SELECT * FROM players WHERE in_roster=1 ORDER BY team_side, number, name").fetchall()
-        matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
-        for m in matches:
-            m["lineup_home"] = parse_json_list(m.get("lineup_home"))
-            m["lineup_away"] = parse_json_list(m.get("lineup_away"))
-            m["available_players"] = parse_json_list(m.get("available_players"))
-    else:
-        # PLAYER role: Only see matches they are in and players in those matches
-        p_id = user.get("player_id")
-        matches = []
-        if p_id:
-            # Matches where the user is in the lineup or available list or is a manager
-            all_matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
-            for m in all_matches:
-                lineup_home = parse_json_list(m.get("lineup_home"))
-                lineup_away = parse_json_list(m.get("lineup_away"))
-                avail = parse_json_list(m.get("available_players"))
-                
-                # Check if player is in any list
-                in_match = (p_id in lineup_home or p_id in lineup_away or p_id in avail)
-                
-                # Also check if they are a manager or captain
-                if not in_match:
-                    mgr = conn.execute("SELECT id FROM match_managers WHERE match_id=? AND player_id=?", (m["id"], p_id)).fetchone()
-                    if mgr: in_match = True
-                
-                if not in_match:
-                    if m.get("captain_home_id") == p_id or m.get("captain_away_id") == p_id:
-                        in_match = True
-                
-                if in_match:
-                    m["lineup_home"] = lineup_home
-                    m["lineup_away"] = lineup_away
-                    m["available_players"] = avail
-                    matches.append(m)
-        
-        # Players: only those involved in the matches the user can see
-        relevant_player_ids = set()
-        for m in matches:
-            relevant_player_ids.update(parse_json_list(m.get("lineup_home")))
-            relevant_player_ids.update(parse_json_list(m.get("lineup_away")))
-            relevant_player_ids.update(parse_json_list(m.get("available_players")))
-        
-        if p_id: relevant_player_ids.add(p_id)
-        relevant_player_ids.discard(None)
-        
-        if relevant_player_ids:
-            placeholders = ','.join(['?'] * len(relevant_player_ids))
-            players = conn.execute(f"SELECT * FROM players WHERE id IN ({placeholders})", list(relevant_player_ids)).fetchall()
-        else:
-            # If no matches, at least show their own profile if it exists
-            if p_id:
-                players = conn.execute("SELECT * FROM players WHERE id=?", (p_id,)).fetchall()
-            else:
-                players = []
-
-    videos = conn.execute("SELECT * FROM videos ORDER BY id DESC").fetchall()
-    highlights = conn.execute("SELECT * FROM highlights ORDER BY id DESC").fetchall()
-    
-    for m in matches:
+    # 1. Fetch Matches with parsed JSON fields
+    all_matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
+    for m in all_matches:
         m["lineup_home"] = parse_json_list(m.get("lineup_home"))
         m["lineup_away"] = parse_json_list(m.get("lineup_away"))
         m["available_players"] = parse_json_list(m.get("available_players"))
         m["managers"] = [mgr["player_id"] for mgr in conn.execute("SELECT player_id FROM match_managers WHERE match_id=?", (m["id"],)).fetchall()]
-        
+
+    # 2. Filtering logic based on role
+    p_id = user.get("player_id")
+    
+    # Identify all involved players from all visible matches
+    def get_involved_players(match_list):
+        ids = set()
+        for m in match_list:
+            ids.update(m["lineup_home"])
+            ids.update(m["lineup_away"])
+            ids.update(m["available_players"])
+        return ids
+
+    if user["role"] in ["ADMIN", "CAPTAIN"]:
+        matches = all_matches
+        # For Admin/Cap, show all roster players + anyone involved in matches
+        involved = get_involved_players(matches)
+        players = conn.execute("SELECT * FROM players WHERE in_roster=1 ORDER BY team_side, number, name").fetchall()
+        roster_ids = {p["id"] for p in players}
+        extra_ids = involved - roster_ids
+        if extra_ids:
+            placeholders = ','.join(['?'] * len(extra_ids))
+            extras = conn.execute(f"SELECT * FROM players WHERE id IN ({placeholders})", list(extra_ids)).fetchall()
+            players.extend(extras)
+    else:
+        # PLAYER role: Only see matches they are in and players in those matches
+        matches = []
+        relevant_player_ids = set()
+        if p_id:
+            for m in all_matches:
+                # Check if player is in lineup, available list, or is a manager/captain
+                is_in_lineup = (p_id in m["lineup_home"] or p_id in m["lineup_away"])
+                is_in_avail = (p_id in m["available_players"])
+                is_mgr = (p_id in m["managers"])
+                is_match_cap = (m.get("captain_home_id") == p_id or m.get("captain_away_id") == p_id)
+                
+                if is_in_lineup or is_in_avail or is_mgr or is_match_cap:
+                    matches.append(m)
+                    relevant_player_ids.update(m["lineup_home"])
+                    relevant_player_ids.update(m["lineup_away"])
+                    relevant_player_ids.update(m["available_players"])
+            
+            relevant_player_ids.add(p_id)
+            relevant_player_ids.discard(None)
+            
+            if relevant_player_ids:
+                placeholders = ','.join(['?'] * len(relevant_player_ids))
+                players = conn.execute(f"SELECT * FROM players WHERE id IN ({placeholders})", list(relevant_player_ids)).fetchall()
+            else:
+                players = conn.execute("SELECT * FROM players WHERE id=?", (p_id,)).fetchall()
+        else:
+            players = []
+
+    videos = conn.execute("SELECT * FROM videos ORDER BY id DESC").fetchall()
+    highlights = conn.execute("SELECT * FROM highlights ORDER BY id DESC").fetchall()
+    
     conn.close()
     return jsonify({
         "user": user,

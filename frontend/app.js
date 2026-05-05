@@ -946,10 +946,10 @@ function partido(){
 
   const isAdmin = state.user.role === "ADMIN";
   const isCap = state.user.role === "CAPTAIN";
-  const pId = state.user.player_id;
-  const isHomeCap = match?.captain_home_id === pId;
-  const isAwayCap = match?.captain_away_id === pId;
-  const isManager = match && (match.managers || []).includes(pId);
+  const pId = Number(state.user.player_id);
+  const isHomeCap = match && Number(match.captain_home_id) === pId;
+  const isAwayCap = match && Number(match.captain_away_id) === pId;
+  const isManager = match && (match.managers || []).map(Number).includes(pId);
   
   // match captains should be able to see convocations and pick players
   const canSeeConvocados = isAdmin || isCap || isManager || isHomeCap || isAwayCap;
@@ -960,8 +960,8 @@ function partido(){
   const homeStars = (match?.lineup_home || []).reduce((acc,id)=>acc+(player(id)?.rating||0),0);
   const awayStars = (match?.lineup_away || []).reduce((acc,id)=>acc+(player(id)?.rating||0),0);
   
-  const canEditHome = isAdmin || isCap || isManager || (match?.captain_home_id === state.user.player_id);
-  const canEditAway = isAdmin || isCap || isManager || (match?.captain_away_id === state.user.player_id);
+  const canEditHome = isAdmin || isCap || isManager || isHomeCap;
+  const canEditAway = isAdmin || isCap || isManager || isAwayCap;
 
   // Correct captain selection: must be from convocation
   const convocationList = state.players.filter(p => availIds.includes(p.id));
