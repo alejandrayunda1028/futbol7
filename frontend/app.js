@@ -1400,4 +1400,29 @@ window.updateRole = async (userId, newRole) => {
   } catch (err) { toast(err.message, true); }
 };
 
+async function saveMatchConvocatoria() {
+  const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
+  if (!match) return;
+  
+  const selectedIds = $$(".avail-check:checked").map(c => Number(c.value));
+  
+  try {
+    const res = await api(`/api/matches/${match.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...match,
+        available_players: selectedIds,
+        lineup_home: match.lineup_home,
+        lineup_away: match.lineup_away
+      })
+    });
+    const idx = state.matches.findIndex(m => m.id === res.id);
+    if(idx > -1) state.matches[idx] = res;
+    render();
+    toast("Convocatoria actualizada");
+  } catch (err) {
+    toast("Error al guardar convocatoria", true);
+  }
+}
+
 load();
