@@ -232,7 +232,7 @@ function shell(){
     return true;
   });
 
-  $("#nav").innerHTML = filteredNav.map(n => `<button class="${state.section===n[0]?'active':''}" data-sec="${n[0]}"><i class="fa-solid ${n[2]}"></i> <span>${n[1]}</span></button>`).join("");
+  $("#nav").innerHTML = filteredNav.map(n => `<button type=\"button\" class=\"${state.section===n[0]?'active':''}\" data-sec=\"${n[0]}\"><i class=\"fa-solid ${n[2]}\"></i> <span>${n[1]}</span></button>`).join("");
   $$("[data-sec]").forEach(b => b.onclick = () => { state.section = b.dataset.sec; render(); });
   
   const live = Number(state.settings.live_enabled) && state.settings.live_url;
@@ -326,10 +326,14 @@ function bind(){
   $("#searchCodeBtn")?.addEventListener("click", searchPlayerByID);
 
   $("#matchForm")?.addEventListener("submit", saveMatch);
-  $("#clearMatch")?.addEventListener("click", ()=>{state.editMatch=null;render();});
+  // FIXED: clearMatch now calls createNewMatch() which explicitly creates a new match with confirmation
+  $("#clearMatch")?.addEventListener("click", createNewMatch);
   $$("[data-edit-match]").forEach(b=>b.onclick=()=>{state.editMatch=Number(b.dataset.editMatch);state.section="partido";render();});
   $$("[data-del-match]").forEach(b=>b.onclick=()=>del("matches", b.dataset.delMatch, "partido"));
   
+  // FIXED: lineup-select change handler no longer calls requestSubmit().
+  // saveLineupChange(this) is called via the inline onchange attribute in the HTML.
+  // Here we only perform the duplicate-check without triggering form submit.
   $$(".lineup-select").forEach(sel => {
     sel.addEventListener("change", (e) => {
       const val = e.target.value;
@@ -341,7 +345,7 @@ function bind(){
           e.target.value = ""; // revert
         }
       }
-      if($("#matchForm")) $("#matchForm").requestSubmit();
+      // REMOVED: $("#matchForm").requestSubmit() — this was creating new matches incorrectly
     });
   });
 
@@ -349,8 +353,17 @@ function bind(){
     chk.onclick = async (e) => {
       e.preventDefault();
       const pid = Number(chk.value);
-      const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
-      if (!match) return;
+      // FIXED: always resolve the active match ID; never create a new match
+      const activeMatchId = state.editMatch || (state.matches[0]?.id) || null;
+      if (!activeMatchId) {
+        toast("No hay partido activo. No se guardaron cambios.", true);
+        return;
+      }
+      const match = state.matches.find(m => m.id === activeMatchId);
+      if (!match) {
+        toast("No se pudo identificar el partido activo. No se guardaron cambios.", true);
+        return;
+      }
       
       const isAlreadyConvoked = (match.available_players || []).includes(pid);
       
@@ -373,15 +386,16 @@ function bind(){
     };
   });
 
-  $$(".match-meta-input").forEach(sel => {
-    sel.addEventListener("change", () => {
-      if($("#matchForm")) $("#matchForm").requestSubmit();
-    });
-  });
+  // FIXED: match-meta-input (captains) no longer calls requestSubmit().
+  // saveCaptainChange(this) is called via the inline onchange attribute on captain selects.
+  // REMOVED: $$(".match-meta-input").forEach requestSubmit() block that was creating new matches
 
   $("#saveMatchBtn")?.addEventListener("click", () => {
     $("#matchForm")?.requestSubmit();
   });
+
+  // Admin: clean duplicate matches utility
+  $("#cleanDuplicatesBtn")?.addEventListener("click", cleanDuplicateMatches);
 
   $("#settingsForm")?.addEventListener("submit", saveSettings);
   $("#videoForm")?.addEventListener("submit", saveVideo);
@@ -440,7 +454,7 @@ function perfil() {
       <div style="margin-top:16px; background:rgba(0,0,0,0.2); padding:12px; border-radius:12px; display:inline-flex; align-items:center; gap:12px; border:1px solid var(--border);">
         <span style="font-weight:600; color:var(--primary);">Código de Jugador:</span>
         <code style="font-size:1.2rem; font-weight:800; color:#fff;">${esc(p?.player_code || 'No asignado')}</code>
-        ${p?.player_code ? `<button class="btn ghost btn-small" onclick="navigator.clipboard.writeText('${p.player_code}'); toast('ID Copiado');" title="Copiar ID"><i class="fa-solid fa-copy"></i></button>` : ''}
+        ${p?.player_code ? `<button type=\"button\" class=\"btn ghost btn-small\" onclick=\"navigator.clipboard.writeText('${p.player_code}'); toast('ID Copiado');\" title=\"Copiar ID\"><i class=\"fa-solid fa-copy\"></i></button>` : ''}
       </div>
     </div>
 
@@ -784,9 +798,9 @@ function showPlayerModal(p, onConfirm, confirmText = "Confirmar") {
           </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button class="btn primary glow-on-hover" id="modalConfirmBtn" style="flex:1">${confirmText}</button>
-        <button class="btn ghost" onclick="closeModal()" style="flex:1">Cancelar</button>
+      <div class=\"modal-footer\">
+        <button type=\"button\" class=\"btn primary glow-on-hover\" id=\"modalConfirmBtn\" style=\"flex:1\">${confirmText}</button>
+        <button type=\"button\" class=\"btn ghost\" onclick=\"closeModal()\" style=\"flex:1\">Cancelar</button>
       </div>
     </div>
   `;
@@ -884,6 +898,8 @@ function partido(){
   const s = state.settings;
   if(!s) return empty("Cargando ajustes...");
   const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
+  // CRITICAL FIX: Always sync state.editMatch so saveMatch() uses PUT (update) not POST (create)
+  if (match && !state.editMatch) state.editMatch = match.id;
   
   if(!match && state.user.role === 'PLAYER') {
     return `
@@ -925,8 +941,9 @@ function partido(){
         </div>
         ${isAdmin ? `
         <div class="row" style="gap: 12px;">
-          <button class="btn primary glow-on-hover" onclick="$('#matchForm').requestSubmit()"><i class="fa-solid fa-floppy-disk"></i> Guardar Cambios</button>
-          <button class="btn ghost" type="button" id="clearMatch"><i class="fa-solid fa-plus"></i> Crear Nuevo</button>
+          <button type="button" class="btn primary glow-on-hover" onclick="$('#matchForm').requestSubmit()"><i class="fa-solid fa-floppy-disk"></i> Guardar Cambios</button>
+          <button type="button" class="btn ghost" id="clearMatch"><i class="fa-solid fa-plus"></i> Crear Nuevo Partido</button>
+          <button type="button" class="btn ghost" id="cleanDuplicatesBtn" title="Limpiar partidos duplicados" style="opacity:0.6"><i class="fa-solid fa-broom"></i></button>
         </div>
         ` : ''}
       </div>
@@ -1140,35 +1157,161 @@ function getMatchPayload(){
 }
 async function saveMatch(e){
   e.preventDefault();
-  const msg = $("#matchMsg");
+  const msgEl = $("#matchMsg");
   try{
     const payload = getMatchPayload();
     
-    // Validations
+    // Validation: captain conflict
     if (payload.captain_home_id && payload.captain_away_id && payload.captain_home_id === payload.captain_away_id) {
       throw new Error("No puedes seleccionar el mismo jugador como Capitán Local y Capitán Rival.");
     }
-    
-    if (payload.available_players.length < 2 && (payload.captain_home_id || payload.captain_away_id)) {
-      // If they are trying to set captains but don't have enough players
-      // This is more of a warning, but let's be strict if they are selecting someone
-      if (payload.captain_home_id && payload.captain_away_id) {
-         // This case is already covered by length < 2, but just in case
+
+    // CRITICAL GUARD: saveMatch() via "Guardar Cambios" must ONLY update existing matches.
+    // If state.editMatch is somehow not set, recover from state.matches[0].
+    // NEVER call POST /api/matches from here — that is exclusively createNewMatch()'s job.
+    if (!state.editMatch) {
+      const firstMatch = state.matches[0];
+      if (firstMatch) {
+        state.editMatch = firstMatch.id;
+        console.warn("[saveMatch] state.editMatch was null, recovered to match.id =", state.editMatch);
+      } else {
+        // No match exists at all — block save
+        throw new Error("No hay partido activo. Usa 'Crear Nuevo Partido' para crear uno primero.");
       }
     }
 
-    if(state.editMatch) await api("/api/matches/"+state.editMatch,{method:"PUT",body:JSON.stringify(payload)});
-    else await api("/api/matches",{method:"POST",body:JSON.stringify(payload)});
-    
+    // Always PUT — never POST from saveMatch()
+    await api("/api/matches/" + state.editMatch, { method: "PUT", body: JSON.stringify(payload) });
     toast("Configuración del partido guardada");
-    msg.innerHTML = "";
+    if(msgEl) msgEl.innerHTML = "";
+    await load(false);
+    render();
   }catch(err){ 
-    msg.innerHTML = `<div style="background:rgba(255,0,0,0.1); border:1px solid var(--danger); color:var(--danger); padding:12px; border-radius:8px; margin-top:12px;">
+    if(msgEl) msgEl.innerHTML = `<div style="background:rgba(255,0,0,0.1); border:1px solid var(--danger); color:var(--danger); padding:12px; border-radius:8px; margin-top:12px;">
       <i class="fa-solid fa-circle-exclamation"></i> ${esc(err.message)}
-    </div>`; 
+    </div>`;
+    else toast(err.message, true);
   }
 }
-function fillMatch(m){}
+
+// ─── CREAR PARTIDO ────────────────────────────────────────────────────────────
+// ÚNICA función autorizada para llamar POST /api/matches.
+// Solo se invoca cuando el usuario presiona "Crear Nuevo Partido".
+async function createNewMatch() {
+  const isAdmin = state.user?.role === "ADMIN";
+  const isCap = state.user?.role === "CAPTAIN";
+  if (!isAdmin && !isCap) {
+    toast("Solo el administrador o capitán puede crear partidos.", true);
+    return;
+  }
+  if (!confirm("¿Crear un partido nuevo? El partido actual no se eliminará.")) return;
+
+  const btn = $("#clearMatch");
+  const originalHtml = btn?.innerHTML;
+  if(btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class=\"fa-solid fa-circle-notch fa-spin\"></i> Creando...`;
+  }
+
+  try {
+    const payload = {
+      title: "Nuevo Partido",
+      match_date: "",
+      venue: "",
+      status: "programado",
+      score_home: 0,
+      score_away: 0,
+      lineup_home: [null,null,null,null,null,null,null],
+      lineup_away: [null,null,null,null,null,null,null],
+      available_players: [],
+      captain_home_id: null,
+      captain_away_id: null,
+      has_stream: 0,
+      stream_url: "",
+      video_url: ""
+    };
+    const res = await api("/api/matches", { method: "POST", body: JSON.stringify(payload) });
+    state.matches.unshift(res);
+    state.editMatch = res.id;
+    toast("✅ Nuevo partido creado. Ahora puedes editarlo.");
+    render();
+  } catch(err) {
+    toast("Error al crear partido: " + err.message, true);
+  } finally {
+    if(btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+
+// ─── LIMPIAR DUPLICADOS (solo ADMIN) ─────────────────────────────────────────
+async function cleanDuplicateMatches() {
+  if (state.user?.role !== "ADMIN") return;
+
+  if (state.matches.length <= 1) {
+    toast("Solo existe un partido. No hay duplicados para eliminar.");
+    return;
+  }
+
+  // Group by title
+  const byTitle = {};
+  state.matches.forEach(m => {
+    const key = (m.title || "Sin título").trim();
+    if (!byTitle[key]) byTitle[key] = [];
+    byTitle[key].push(m);
+  });
+
+  const duplicateGroups = Object.entries(byTitle).filter(([, arr]) => arr.length > 1);
+
+  if (duplicateGroups.length === 0) {
+    const info = state.matches.map(m => `  • #${m.id} — ${m.title || "Sin título"} (${m.status})`).join("\n");
+    const confirm1 = confirm(
+      `No hay partidos con título duplicado, pero hay ${state.matches.length} partidos en total:\n\n${info}\n\n` +
+      `¿Deseas eliminar todos excepto el más reciente (#${state.matches[0].id})?`
+    );
+    if (!confirm1) return;
+
+    // Keep the first (most recent, since ordered by id DESC), delete the rest
+    const toDelete = state.matches.slice(1);
+    let deleted = 0;
+    for (const m of toDelete) {
+      try { await api(`/api/matches/${m.id}`, { method: "DELETE" }); deleted++; }
+      catch(err) { toast("Error eliminando #" + m.id + ": " + err.message, true); }
+    }
+    toast(`✅ ${deleted} partido(s) eliminado(s). Se conservó el partido #${state.matches[0].id}.`);
+    state.editMatch = state.matches[0].id;
+    await load(false);
+    render();
+    return;
+  }
+
+  const info = duplicateGroups.map(([title, arr]) =>
+    `  • "${title}": ${arr.length} copias (IDs: ${arr.map(m => "#" + m.id).join(", ")})`
+  ).join("\n");
+
+  if (!confirm(
+    `Se encontraron grupos con el mismo título:\n\n${info}\n\n` +
+    `Se conservará el más reciente de cada grupo y se eliminarán los demás.\n¿Confirmar limpieza?`
+  )) return;
+
+  let deleted = 0;
+  for (const [, arr] of duplicateGroups) {
+    // arr is sorted by id DESC (matches from bootstrap), keep arr[0] (most recent)
+    const toDelete = arr.slice(1);
+    for (const m of toDelete) {
+      try { await api(`/api/matches/${m.id}`, { method: "DELETE" }); deleted++; }
+      catch(err) { toast("Error eliminando #" + m.id + ": " + err.message, true); }
+    }
+  }
+
+  toast(`✅ ${deleted} partido(s) duplicado(s) eliminado(s).`);
+  await load(false);
+  state.editMatch = state.matches[0]?.id || null;
+  render();
+}
+
+
 function matchItem(m){
   return `<div class="item-row">
     <div>
@@ -1486,23 +1629,27 @@ window.updateRole = async (userId, newRole) => {
 };
 
 async function saveSpecificMatchData(matchId, partialData) {
-  const match = state.matches.find(m => m.id === matchId);
-  if (!match) return;
+  // SAFETY: always validate matchId — never create a new match as fallback
+  const id = Number(matchId);
+  if (!id || isNaN(id)) {
+    toast("No se pudo identificar el partido activo. No se guardaron cambios.", true);
+    console.error("[saveSpecificMatchData] matchId inválido:", matchId);
+    return;
+  }
+  const match = state.matches.find(m => m.id === id);
+  if (!match) {
+    toast("No se pudo identificar el partido activo. No se guardaron cambios.", true);
+    return;
+  }
   
   try {
-    const res = await api(`/api/matches/${matchId}`, {
+    const res = await api(`/api/matches/${id}`, {
       method: "PUT",
-      body: JSON.stringify({
-        ...match,
-        ...partialData
-      })
+      body: JSON.stringify({ ...match, ...partialData })
     });
-    
-    // Update local state
+    // Update local state immediately (no full reload needed)
     const idx = state.matches.findIndex(m => m.id === res.id);
     if(idx > -1) state.matches[idx] = res;
-    
-    toast("Configuración actualizada");
     render();
   } catch (err) {
     toast("Error al guardar: " + err.message, true);
@@ -1521,14 +1668,21 @@ async function saveMatchConvocatoria() {
 
 async function saveLineupChange(el) {
   const matchId = Number(el.dataset.matchId);
+  // SAFETY: never proceed without a valid matchId
+  if (!matchId || isNaN(matchId)) {
+    toast("No se pudo identificar el partido activo. No se guardaron cambios.", true);
+    return;
+  }
   const match = state.matches.find(m => m.id === matchId);
-  if (!match) return;
+  if (!match) {
+    toast("No se pudo identificar el partido activo. No se guardaron cambios.", true);
+    return;
+  }
   
   const lineupHome = [...(match.lineup_home || [null,null,null,null,null,null,null])];
   const lineupAway = [...(match.lineup_away || [null,null,null,null,null,null,null])];
   
-  // Scoped search only for THIS match's selects if possible, 
-  // but since we refresh the whole page, let's just be careful.
+  // Scoped read — only selects for THIS match's ID
   $$(`.lineup-select[data-match-id="${matchId}"]`).forEach(s => {
     const [side, idx] = s.name.split("_");
     const val = s.value ? Number(s.value) : null;
@@ -1537,13 +1691,21 @@ async function saveLineupChange(el) {
   });
   
   await saveSpecificMatchData(match.id, { lineup_home: lineupHome, lineup_away: lineupAway });
-  toast("Alineación actualizada correctamente");
+  toast("✅ Alineación actualizada");
 }
 
 window.saveCaptainChange = async (el) => {
   const matchId = Number(el.dataset.matchId);
+  // SAFETY: never proceed without a valid matchId
+  if (!matchId || isNaN(matchId)) {
+    toast("No se pudo identificar el partido activo. No se guardaron cambios.", true);
+    return;
+  }
   const match = state.matches.find(m => m.id === matchId);
-  if (!match) return;
+  if (!match) {
+    toast("No se pudo identificar el partido activo. No se guardaron cambios.", true);
+    return;
+  }
   
   const cHomeId = Number($(`.match-meta-input[name='captain_home_id'][data-match-id="${matchId}"]`)?.value) || null;
   const cAwayId = Number($(`.match-meta-input[name='captain_away_id'][data-match-id="${matchId}"]`)?.value) || null;
