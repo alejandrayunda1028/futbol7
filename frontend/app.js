@@ -11,9 +11,9 @@ const nav = [
   ["ajustes", "Ajustes", "fa-gear"]
 ];
 
-const slots = ["ARQ", "DEF I", "DEF C", "DEF D", "MED I", "MED D", "DEL"];
-const homePos = [[50,90], [25,75], [50,75], [75,75], [30,50], [70,50], [50,25]];
-const awayPos = [[50,10], [75,25], [50,25], [25,25], [70,50], [30,50], [50,75]];
+const slots = ["ARQ", "DEF I", "DEF D", "MED I", "MED C", "MED D", "DEL"];
+const homePos = [[50,88], [30,68], [70,68], [25,48], [50,42], [75,48], [50,22]];
+const awayPos = [[50,12], [70,32], [30,32], [75,52], [50,58], [25,52], [50,78]];
 
 let socket;
 let state = {
@@ -1368,10 +1368,8 @@ function renderPitchShell(m){
   if (!m) return empty("Información de partido no disponible.");
   return `<div class="pitch-container">
     <div class="pitch-lines"></div>
-    <div class="pitch-grid">
-      <div class="pitch-side">${pitch(m, "home")}</div>
-      <div class="pitch-side">${pitch(m, "away")}</div>
-    </div>
+    <div class="pitch-side">${pitch(m, "home")}</div>
+    <div class="pitch-side">${pitch(m, "away")}</div>
   </div>`;
 }
 function pitch(m, side){
@@ -1386,18 +1384,21 @@ function pitch(m, side){
     
     if(p) {
       const bg = p.photo_path || p.photo_url || p.poster_path;
-      const bgStyle = bg ? `background-image:url('${esc(bg)}'); background-size:cover; background-position:center; color:transparent; border-color:${t.p};` : `background:var(--bg-panel-solid); border-color:${t.p}; color:var(--text);`;
+      const bgStyle = bg ? `background-image:url('${esc(bg)}'); border-color:${t.p};` : `background:var(--bg-panel-solid); border-color:${t.p}; color:var(--text);`;
       const isMatchCaptain = Number(m.captain_home_id) === Number(p.id) || Number(m.captain_away_id) === Number(p.id);
+      
+      // Use short name for pitch
+      const shortName = (p.nickname || p.name.split(" ")[0]).substring(0, 10);
       
       return `<div class="player-dot" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle}">
         ${bg ? '' : esc(p.number || '')}
-        <div class="player-label" style="background:${t.p}; color:${contrast(t.p)}">
-           <span style="font-size:0.6rem; opacity:0.8; display:block;">${slotName}</span>
-           ${esc(p.nickname || p.name.split(" ")[0])}
+        <div class="player-label" style="background: ${isMatchCaptain ? '#fbbf24' : t.p}; color: ${isMatchCaptain ? '#000' : contrast(t.p)}">
+           <span style="font-size:0.6rem; opacity:0.8; font-weight:800;">${slotName}</span>
+           <span>${esc(shortName)}</span>
         </div>
         ${isMatchCaptain ? `
-        <div style="position:absolute; top:-10px; right:-10px; z-index:10;">
-           <i class="fa-solid fa-crown" style="color:#fbbf24; font-size:1rem; filter:drop-shadow(0 0 2px rgba(0,0,0,0.5))"></i>
+        <div style="position:absolute; top:-12px; right:-12px; z-index:10; background:#fbbf24; color:#000; width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
+           <i class="fa-solid fa-crown" style="font-size:0.7rem"></i>
         </div>
         ` : ''}
       </div>`;
