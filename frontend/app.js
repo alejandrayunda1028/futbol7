@@ -935,21 +935,22 @@ function partido(){
   // CRITICAL FIX: Always sync state.editMatch so saveMatch() uses PUT (update) not POST (create)
   if (match && !state.editMatch) state.editMatch = match.id;
   
-  if(!match && state.user.role === 'PLAYER') {
+  if(!match) {
     return `
     <section class="panel glass" style="text-align:center; padding:60px 20px;">
       <i class="fa-solid fa-calendar-xmark" style="font-size:4rem; color:var(--muted); margin-bottom:20px; opacity:0.3;"></i>
-      <h2>No estás convocado a ningún partido</h2>
-      <p class="muted" style="max-width:500px; margin:12px auto 24px;">Cuando el capitán te agregue a la convocatoria de un partido, podrás ver los equipos y la información aquí.</p>
+      <h2>No hay partidos activos</h2>
+      <p class="muted" style="max-width:500px; margin:12px auto 24px;">${state.user.role === 'ADMIN' ? 'Crea un partido nuevo desde el botón "Crear Nuevo Partido" para empezar.' : 'Cuando el capitán te agregue a la convocatoria de un partido, podrás ver los equipos aquí.'}</p>
+      ${state.user.role === 'ADMIN' ? `<button class="btn primary" onclick="createNewMatch()"><i class="fa-solid fa-plus"></i> Crear Primer Partido</button>` : ''}
     </section>`;
   }
 
   const isAdmin = state.user.role === "ADMIN";
   const isCap = state.user.role === "CAPTAIN";
   const pId = Number(state.user.player_id);
-  const isHomeCap = match && Number(match.captain_home_id) === pId;
-  const isAwayCap = match && Number(match.captain_away_id) === pId;
-  const isManager = match && (match.managers || []).map(Number).includes(pId);
+  const isHomeCap = Number(match.captain_home_id) === pId;
+  const isAwayCap = Number(match.captain_away_id) === pId;
+  const isManager = (match.managers || []).map(Number).includes(pId);
   
   // match captains should be able to see convocations and pick players
   const canSeeConvocados = isAdmin || isCap || isManager || isHomeCap || isAwayCap;
@@ -1364,30 +1365,41 @@ function matchItem(m){
   </div>`;
 }
 function renderPitchShell(m){
+  if (!m) return empty("Información de partido no disponible.");
   return `<div class="pitch-container">
     <div class="pitch-lines"></div>
     <div class="pitch-grid">
-      <div class="pitch-side">${pitch(m.lineup_home, homePos, "home")}</div>
-      <div class="pitch-side">${pitch(m.lineup_away, awayPos, "away")}</div>
+      <div class="pitch-side">${pitch(m, "home")}</div>
+      <div class="pitch-side">${pitch(m, "away")}</div>
     </div>
   </div>`;
 }
-function pitch(lineup, coords, side){
+function pitch(m, side){
+  const lineup = side === "home" ? (m.lineup_home || []) : (m.lineup_away || []);
+  const coords = side === "home" ? homePos : awayPos;
   const t = team(side);
-  return coords.map((xy,i)=>{
-    const p = player(lineup?.[i]);
+  
+  return slots.map((slotName, i) => {
+    const xy = coords[i];
+    const pId = lineup[i];
+    const p = player(pId);
+    
     if(p) {
-      const bg = p.photo_path || p.poster_path;
+      const bg = p.photo_path || p.photo_url || p.poster_path;
       const bgStyle = bg ? `background-image:url('${esc(bg)}'); background-size:cover; background-position:center; color:transparent; border-color:${t.p};` : `background:var(--bg-panel-solid); border-color:${t.p}; color:var(--text);`;
+      const isMatchCaptain = Number(m.captain_home_id) === Number(p.id) || Number(m.captain_away_id) === Number(p.id);
+      
       return `<div class="player-dot" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle}">
         ${bg ? '' : esc(p.number || '')}
         <div class="player-label" style="background:${t.p}; color:${contrast(t.p)}">
-           <span style="font-size:0.6rem; opacity:0.8; display:block;">${slots[i]}</span>
+           <span style="font-size:0.6rem; opacity:0.8; display:block;">${slotName}</span>
            ${esc(p.nickname || p.name.split(" ")[0])}
         </div>
-        <div style="position:absolute; top:-10px; right:-10px; display:${match?.captain_home_id===p.id || match?.captain_away_id===p.id ? 'block' : 'none'}">
+        ${isMatchCaptain ? `
+        <div style="position:absolute; top:-10px; right:-10px; z-index:10;">
            <i class="fa-solid fa-crown" style="color:#fbbf24; font-size:1rem; filter:drop-shadow(0 0 2px rgba(0,0,0,0.5))"></i>
         </div>
+        ` : ''}
       </div>`;
     } else {
       return `<div class="player-dot empty" style="left:${xy[0]}%;top:${xy[1]}%;"><i class="fa-solid fa-plus"></i></div>`;
