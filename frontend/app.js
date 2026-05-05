@@ -1076,10 +1076,37 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit, match){
           ${extraOpt}
           ${list.map(pl => {
             const isOpposingCaptain = (side === 'home' && Number(match.captain_away_id) === pl.id) || (side === 'away' && Number(match.captain_home_id) === pl.id);
-            const isPickedByOther = allSelectedIds.includes(Number(pl.id)) && Number(selVal) !== Number(pl.id);
             
-            return `<option value="${pl.id}" ${Number(selVal)===Number(pl.id)?"selected":""} ${isOpposingCaptain || isPickedByOther ? 'disabled' : ''}>
-              ${esc(pl.player_code || '')} — #${pl.number} ${esc(pl.nickname || pl.name)} (⭐${pl.rating}) ${isOpposingCaptain ? '— Capitán Rival' : (isPickedByOther ? '— Ocupado' : '')}
+            // Check if player is occupied elsewhere
+            let occupationMsg = "";
+            let isDisabled = false;
+
+            if (isOpposingCaptain) {
+              occupationMsg = " — Capitán Rival";
+              isDisabled = true;
+            } else {
+              // Check Home lineup
+              const homeIdx = match.lineup_home.indexOf(pl.id);
+              if (homeIdx > -1) {
+                if (side === 'home' && homeIdx === i) { /* it's me, ok */ }
+                else {
+                   occupationMsg = ` — Ocupado (${slots[homeIdx]} Local)`;
+                   isDisabled = true;
+                }
+              }
+              // Check Away lineup
+              const awayIdx = match.lineup_away.indexOf(pl.id);
+              if (awayIdx > -1) {
+                if (side === 'away' && awayIdx === i) { /* it's me, ok */ }
+                else {
+                   occupationMsg = ` — Ocupado (${slots[awayIdx]} Rival)`;
+                   isDisabled = true;
+                }
+              }
+            }
+            
+            return `<option value="${pl.id}" ${Number(selVal)===Number(pl.id)?"selected":""} ${isDisabled ? 'disabled' : ''}>
+              ${esc(pl.player_code || '')} — #${pl.number} ${esc(pl.nickname || pl.name)} (⭐${pl.rating}) ${occupationMsg}
             </option>`;
           }).join("")}
         </select>
@@ -1167,10 +1194,13 @@ function pitch(lineup, coords, side){
     const p = player(lineup?.[i]);
     if(p) {
       const bg = p.photo_path || p.poster_path;
-      const bgStyle = bg ? `background-image:url('${esc(bg)}'); background-size:cover; background-position:center; color:transparent; border-color:${t.p};` : `border-color:${t.p}; color:${t.p};`;
+      const bgStyle = bg ? `background-image:url('${esc(bg)}'); background-size:cover; background-position:center; color:transparent; border-color:${t.p};` : `background:var(--bg-panel-solid); border-color:${t.p}; color:var(--text);`;
       return `<div class="player-dot" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle}">
-        ${bg ? '' : esc(p.number)}
-        <div class="player-label" style="background:${t.p}; color:${contrast(t.p)}">${esc(p.nickname || p.name.split(" ")[0])}</div>
+        ${bg ? '' : esc(p.number || '')}
+        <div class="player-label" style="background:${t.p}; color:${contrast(t.p)}">
+           <span style="font-size:0.6rem; opacity:0.8; display:block;">${slots[i]}</span>
+           ${esc(p.nickname || p.name.split(" ")[0])}
+        </div>
       </div>`;
     } else {
       return `<div class="player-dot empty" style="left:${xy[0]}%;top:${xy[1]}%;"><i class="fa-solid fa-plus"></i></div>`;
@@ -1504,6 +1534,7 @@ async function saveLineupChange(el) {
   });
   
   await saveSpecificMatchData(match.id, { lineup_home: lineupHome, lineup_away: lineupAway });
+  toast("Alineación actualizada correctamente");
 }
 
 window.saveCaptainChange = async (el) => {
