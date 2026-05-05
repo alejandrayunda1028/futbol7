@@ -12,8 +12,8 @@ const nav = [
 ];
 
 const slots = ["ARQ", "DEF I", "DEF D", "MED I", "MED C", "MED D", "DEL"];
-const homePos = [[50,88], [30,68], [70,68], [25,48], [50,42], [75,48], [50,22]];
-const awayPos = [[50,12], [70,32], [30,32], [75,52], [50,58], [25,52], [50,78]];
+const homePos = [[50,88], [30,70], [70,70], [20,52], [50,52], [80,52], [50,32]];
+const awayPos = [[50,12], [70,30], [30,30], [80,48], [50,48], [20,48], [50,68]];
 
 let socket;
 let state = {
@@ -330,31 +330,36 @@ function bind(){
   });
   $$("[data-del-player]").forEach(b=>b.onclick=()=>del("players", b.dataset.delPlayer, "jugadores"));
 
-  // Player type toggles in jugadores
   $$(".ptype-btn").forEach(b => b.onclick = () => {
-    const type = b.dataset.type;
-    $$(".ptype-btn").forEach(btn => btn.classList.remove("active"));
-    b.classList.add("active");
-    $("#playerTypeInput").value = type;
-    
-    $("#regField").classList.toggle("hidden", type !== 'registrado');
-    $("#manualFields").classList.toggle("hidden", type === 'registrado');
-    $("#nnMsg").classList.toggle("hidden", type !== 'nn');
-    
-    if(type === 'nn') {
-      const nextNN = state.players.filter(p => p.is_nn).length + 1;
-      $("#playerNameInput").value = `NN ${nextNN}`;
-      $("#playerNameInput").required = false;
-      $("#statsFields").classList.add("hidden");
-    } else {
-      $("#playerNameInput").required = true;
-      if(type === 'registrado') {
-        $("#playerNameInput").value = "";
-        $("#statsFields").classList.add("hidden");
-      } else {
-        $("#statsFields").classList.remove("hidden");
-      }
-    }
+    state._lastEditType = b.dataset.type;
+    state.editPlayer = null; // Clear edit mode when switching tabs
+    render();
+  });
+
+  $("#playerForm")?.addEventListener("input", () => {
+    const p = getPlayerForm();
+    if (!p.name && p.is_nn) p.name = "Jugador NN";
+    $("#preview").innerHTML = `
+      <div class="player-card" style="width:100%; max-width:300px; margin:0 auto; transform:scale(1.05);">
+        <div class="player-card-header">
+          <div class="player-card-img-wrap">
+            <img src="${esc(p.photo_path || '')}" class="player-card-img" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p.name || 'J')}&background=random&color=fff'">
+          </div>
+          <div class="player-card-info">
+            <h4 class="player-card-name">${esc(p.name || 'Nuevo Jugador')}</h4>
+            <span class="player-card-code">PREVIEW</span>
+          </div>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--muted); margin: 4px 0; display:flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-person-running" style="color:var(--primary)"></i> ${esc(p.position || 'Posición')} · #${p.number || '0'}
+        </div>
+        <div class="player-card-stats">
+          <div><span>PJ</span><b>${p.matches_played || 0}</b></div>
+          <div><span>Goles</span><b>${p.goals || 0}</b></div>
+          <div><span>⭐</span><b>${(p.rating || 5.0).toFixed(1)}</b></div>
+        </div>
+      </div>
+    `;
   });
 
   $("#searchCodeBtn")?.addEventListener("click", searchPlayerByID);
@@ -576,10 +581,10 @@ function inicio(){
 function metric(label,value){return `<article class="panel metric glass"><span>${esc(label)}</span><b>${esc(value)}</b></article>`}
 function empty(t){return `<p class="muted" style="text-align:center; padding:20px; font-style:italic;">${esc(t)}</p>`}
 
-function poster(player){
-  const img = player.poster_path || player.photo_path;
-  if(img) return `<div class="poster"><img src="${esc(img)}" alt="${esc(player.name)}"></div>`;
-  const initial = (player.nickname || player.name || "J").trim()[0] || "J";
+function poster(p){
+  const img = p.photo_path || p.photo_url || p.poster_path;
+  if(img) return `<div class="poster"><img src="${esc(img)}" alt="${esc(p.name)}" onerror="this.parentElement.innerHTML='<div class=\'poster placeholder\'><strong>${esc((p.nickname||p.name||'J')[0].toUpperCase())}</strong></div>'"></div>`;
+  const initial = (p.nickname || p.name || "J").trim()[0] || "J";
   return `<div class="poster placeholder"><strong>${esc(initial.toUpperCase())}</strong></div>`;
 }
 function playerCard(p) {
@@ -588,21 +593,26 @@ function playerCard(p) {
   const canEdit = isAdmin || isCap;
   
   let typeTag = "Registrado";
-  if (p.is_guest) typeTag = "Invitado";
-  if (p.is_nn) typeTag = "NN";
+  let tagColor = "rgba(99, 102, 241, 0.2)";
+  if (p.is_guest) { typeTag = "Invitado"; tagColor = "rgba(245, 158, 11, 0.2)"; }
+  if (p.is_nn) { typeTag = "NN"; tagColor = "rgba(161, 161, 170, 0.2)"; }
+
+  const photoUrl = p.photo_path || p.photo_url || p.poster_path;
 
   return `
   <div class="player-card">
     <div class="player-card-header">
-      <img src="${esc(p.photo_path || '')}" class="player-card-img" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p.name)}&background=random&color=fff'">
+      <div class="player-card-img-wrap">
+        <img src="${esc(photoUrl || '')}" class="player-card-img" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p.name)}&background=random&color=fff'">
+      </div>
       <div class="player-card-info">
         <h4 class="player-card-name" title="${esc(p.name)}">${esc(p.name)}</h4>
         <span class="player-card-code">${esc(p.player_code || '---')}</span>
       </div>
     </div>
     
-    <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 4px;">
-      <i class="fa-solid fa-person-running"></i> ${esc(p.position || 'Sin posición')} · #${p.number || '0'}
+    <div style="font-size: 0.8rem; color: var(--muted); margin: 4px 0; display:flex; align-items:center; gap:6px;">
+      <i class="fa-solid fa-person-running" style="color:var(--primary)"></i> ${esc(p.position || 'Sin posición')} · #${p.number || '0'}
     </div>
 
     <div class="player-card-stats">
@@ -613,11 +623,11 @@ function playerCard(p) {
     </div>
 
     <div class="player-card-footer">
-      <span class="player-card-tag">${typeTag}</span>
-      <div class="row" style="gap:8px">
+      <span class="player-card-tag" style="background:${tagColor}">${typeTag}</span>
+      <div class="row" style="gap:6px">
+        <button class="btn ghost icon-btn small" onclick="showPlayerDetailModalById(${p.id})" title="Ver detalle"><i class="fa-solid fa-eye"></i></button>
         ${canEdit ? `<button class="btn ghost icon-btn small" onclick="editPlayer(${p.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>` : ''}
         ${canEdit ? `<button class="btn ghost icon-btn small danger-hover" data-roster-remove="${p.id}" title="Quitar de Plantilla"><i class="fa-solid fa-user-minus"></i></button>` : ''}
-        ${isAdmin ? `<button class="btn ghost icon-btn small danger-hover" data-del-player="${p.id}" title="Eliminar de BD"><i class="fa-solid fa-trash"></i></button>` : ''}
       </div>
     </div>
   </div>`;
@@ -630,6 +640,7 @@ function jugadores(){
 
   const q = (state.searchPlayers || "").toLowerCase();
   const typeFilter = state.playerTypeFilter || "todos";
+  const activeType = state._lastEditType || "registrado";
   
   const filtered = state.players.filter(p => {
     const matchesQuery = p.name.toLowerCase().includes(q) || (p.player_code || "").toLowerCase().includes(q);
@@ -643,103 +654,119 @@ function jugadores(){
   return `
   <div style="display: flex; flex-direction: column; gap: 32px;">
     
-    <section class="two-cols" style="align-items: flex-start; gap: 24px;">
-      <article class="panel glass" style="position: sticky; top: 20px;">
-        <p class="eyebrow">${state.editPlayer ? "Modificando" : "Gestión"}</p>
-        <h2 style="margin-bottom: 20px;">${state.editPlayer ? "Editar jugador" : "Registrar jugador"}</h2>
-        
-        <div style="display:flex; gap:10px; margin-bottom:24px; background:rgba(0,0,0,0.2); padding:6px; border-radius:12px; border: 1px solid var(--border);">
-          <button class="btn ghost ptype-btn ${(!state._lastEditType || state._lastEditType==='registrado')?'active':''}" data-type="registrado" style="flex:1">Registrado</button>
-          <button class="btn ghost ptype-btn ${state._lastEditType==='invitado'?'active':''}" data-type="invitado" style="flex:1">Invitado</button>
-          <button class="btn ghost ptype-btn ${state._lastEditType==='nn'?'active':''}" data-type="nn" style="flex:1">NN</button>
-        </div>
-
-        <form id="playerForm" class="form-grid">
-          <input type="hidden" name="player_type" id="playerTypeInput" value="registrado">
-          
-          <div id="regField" class="full" style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:12px; border: 1px solid var(--border);">
-            <label>Buscar por Código (JUG-XXXX)
-              <div class="row" style="margin-top: 8px;">
-                <input id="searchCodeInput" placeholder="Ej: JUG-0001" style="flex:1">
-                <button type="button" class="btn primary" id="searchCodeBtn"><i class="fa-solid fa-magnifying-glass"></i></button>
-              </div>
-            </label>
-          </div>
-
-          <div id="manualFields" class="full form-grid" style="grid-template-columns: 1fr 1fr; gap:16px;">
-            <label class="full">Nombre Completo<input name="name" id="playerNameInput" required placeholder="Ej: Ricardo M"></label>
-            <label>Teléfono<input name="phone" placeholder="+57..."></label>
-            <label>Número<input name="number" type="number" min="0" max="99" value="0"></label>
-            <label class="full">Posición Preferida
-              <select name="position">
-                <option value="">Cualquiera</option>
-                ${slots.map(s => `<option value="${s}">${s}</option>`).join("")}
-              </select>
-            </label>
-            <label class="full">Calificación (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10" ${isAdmin || isCap ? '' : 'disabled'} title="${isAdmin || isCap ? 'Solo admin/capitán pueden editar calificación' : ''}"></label>
-          </div>
-
-          <div id="nnMsg" class="full hidden" style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:12px; color:var(--muted); border: 1px solid var(--border);">
-            <p><i class="fa-solid fa-circle-info"></i> El jugador se guardará con un alias automático.</p>
+    <section class="two-cols" style="align-items: flex-start; gap: 32px;">
+      
+      <!-- COL LEFT: FORMULARIO -->
+      <div style="flex: 0 0 400px; display: flex; flex-direction: column; gap: 24px;">
+        <article class="panel glass" style="position: sticky; top: 20px;">
+          <div style="margin-bottom: 24px;">
+            <p class="eyebrow">${state.editPlayer ? "Modificando" : "Gestión de Jugadores"}</p>
+            <h2 style="margin:0;">${state.editPlayer ? "Editar Jugador" : "Agregar Jugador"}</h2>
           </div>
           
-          <div class="full">
-            <label>Foto del Jugador (Opcional)</label>
-            <div style="display:flex; gap:12px; align-items:center; margin-top:8px;">
-              <label class="btn ghost btn-small" style="cursor:pointer; flex:1">
-                <i class="fa-solid fa-camera"></i> Subir Foto
-                <input id="playerPhoto" type="file" accept="image/*" hidden>
+          <div style="display:flex; gap:6px; margin-bottom:24px; background:rgba(0,0,0,0.4); padding:4px; border-radius:14px; border: 1px solid var(--border);">
+            <button class="btn ghost ptype-btn ${activeType==='registrado'?'active':''}" data-type="registrado" style="flex:1; border:none; font-size:0.85rem; padding:8px;">Registrado</button>
+            <button class="btn ghost ptype-btn ${activeType==='invitado'?'active':''}" data-type="invitado" style="flex:1; border:none; font-size:0.85rem; padding:8px;">Invitado</button>
+            <button class="btn ghost ptype-btn ${activeType==='nn'?'active':''}" data-type="nn" style="flex:1; border:none; font-size:0.85rem; padding:8px;">NN</button>
+          </div>
+
+          <form id="playerForm" class="form">
+            <input type="hidden" name="player_type" id="playerTypeInput" value="${activeType}">
+            
+            <!-- REGISTRADO SEARCH -->
+            <div id="regField" class="${activeType==='registrado'?'':'hidden'}" style="background:rgba(99, 102, 241, 0.05); padding:20px; border-radius:16px; border: 1px dashed var(--primary); margin-bottom:20px;">
+              <label>Código JUG-XXXX
+                <div class="row" style="margin-top: 10px; gap:8px;">
+                  <input id="searchCodeInput" placeholder="Ej: JUG-0001" style="flex:1; background:rgba(0,0,0,0.3)">
+                  <button type="button" class="btn primary" id="searchCodeBtn" style="padding:12px 20px;"><i class="fa-solid fa-magnifying-glass"></i></button>
+                </div>
               </label>
-              <input name="photo_path" type="hidden">
-              <input name="poster_path" type="hidden">
+              <p class="muted" style="font-size:0.75rem; margin-top:12px;">Busca un jugador que ya haya sido registrado previamente en el sistema global.</p>
             </div>
-            <p class="muted" style="font-size:0.7rem; margin-top:4px;">Se generará una tarjeta de presentación automáticamente.</p>
-          </div>
 
-          <div id="statsFields" class="full form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap:12px; background:rgba(0,0,0,0.2); padding:12px; border-radius:12px; margin-top:10px;">
-            <label>PJ<input name="matches_played" type="number" value="0"></label>
-            <label>Goles<input name="goals" type="number" value="0"></label>
-            <label>Asist.<input name="assists" type="number" value="0"></label>
-          </div>
-          
-          <div class="full row" style="margin-top:20px; gap: 12px;">
-            <button class="btn primary glow-on-hover" style="flex:2" id="playerSubmitBtn"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar Cambios" : "Crear Jugador"}</button>
-            <button type="button" class="btn ghost" id="cancelPlayerBtn" style="flex:1">Cancelar</button>
-          </div>
-          <div id="playerMsg" class="full" style="font-size:0.8rem; min-height:24px;"></div>
-        </form>
-      </article>
+            <!-- MANUAL FIELDS (INVITADO / NN) -->
+            <div id="manualFields" class="form ${activeType==='registrado'?'hidden':''}">
+              <label>Nombre Completo<input name="name" id="playerNameInput" ${activeType==='nn'?'disabled':''} placeholder="${activeType==='nn'?'Se generará automáticamente':'Ej: Ricardo M'}"></label>
+              
+              <div class="form-grid ${activeType==='nn'?'hidden':''}">
+                <label>Teléfono<input name="phone" placeholder="+57..."></label>
+                <label>Número<input name="number" type="number" min="0" max="99" value="0"></label>
+              </div>
 
+              <label class="${activeType==='nn'?'hidden':''}">Posición Preferida
+                <select name="position">
+                  <option value="">Cualquiera</option>
+                  ${slots.map(s => `<option value="${s}">${s}</option>`).join("")}
+                </select>
+              </label>
+              
+              <label class="${activeType==='nn'?'hidden':''}">Calificación (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10"></label>
+
+              <div class="${activeType==='nn'?'hidden':''}">
+                <label>Foto (Opcional)</label>
+                <div style="display:flex; gap:12px; align-items:center; margin-top:8px;">
+                  <label class="btn ghost" style="cursor:pointer; flex:1; padding:12px;">
+                    <i class="fa-solid fa-camera"></i> Subir Foto
+                    <input id="playerPhoto" type="file" accept="image/*" hidden>
+                  </label>
+                  <input name="photo_path" type="hidden">
+                </div>
+              </div>
+
+              <div id="statsFields" class="form-grid" style="background:rgba(0,0,0,0.2); padding:16px; border-radius:16px; border:1px solid var(--border);">
+                <label>PJ<input name="matches_played" type="number" value="0"></label>
+                <label>Goles<input name="goals" type="number" value="0"></label>
+                <label>Asist.<input name="assists" type="number" value="0"></label>
+              </div>
+            </div>
+
+            <div id="nnMsg" class="${activeType==='nn'?'':'hidden'}" style="margin-bottom:20px; text-align:center;">
+              <div style="background:rgba(255,255,255,0.03); padding:24px; border-radius:16px; border: 1px solid var(--border);">
+                <i class="fa-solid fa-user-secret" style="font-size:2rem; opacity:0.3; margin-bottom:12px;"></i>
+                <p class="muted">El jugador se agregará con el nombre "Jugador NN" y no requerirá datos personales.</p>
+              </div>
+            </div>
+            
+            <div class="row" style="margin-top:12px; gap: 12px; display:${activeType==='registrado'?'none':'flex'}">
+              <button class="btn primary glow-on-hover" style="flex:2" id="playerSubmitBtn"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar" : "Agregar"}</button>
+              <button type="button" class="btn ghost" id="cancelPlayerBtn" style="flex:1">Cancelar</button>
+            </div>
+            <div id="playerMsg" style="font-size:0.8rem; margin-top:10px; text-align:center;"></div>
+          </form>
+        </article>
+
+        <article class="panel glass">
+          <p class="eyebrow" style="margin-bottom:12px;">Vista Previa de Tarjeta</p>
+          <div id="preview" style="display:flex; justify-content:center; background:rgba(0,0,0,0.2); padding:32px; border-radius:20px; border:1px solid var(--border);">
+             <p class="muted" style="font-size:0.8rem; font-style:italic;">Completa la información para ver la vista previa.</p>
+          </div>
+        </article>
+      </div>
+
+      <!-- COL RIGHT: LISTADO -->
       <div style="flex: 1; display: flex; flex-direction: column; gap: 24px; min-width: 0;">
         <article class="panel glass">
-          <div class="row" style="justify-content:space-between; margin-bottom:20px; align-items:center; flex-wrap: wrap; gap: 16px;">
+          <div class="row" style="justify-content:space-between; margin-bottom:32px; align-items:center; gap: 24px;">
             <div>
-              <h2 style="font-size: 1.8rem;">Plantilla General</h2>
-              <p class="muted">Lista de jugadores registrados e invitados.</p>
+              <h2 style="margin:0; font-size: 2.2rem;">Plantilla General</h2>
+              <p class="muted" style="margin-top:4px;">Gestiona a todos los jugadores convocables.</p>
             </div>
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-              <select id="typeFilter" onchange="state.playerTypeFilter=this.value; render();" style="width:auto; padding:10px 16px; background:rgba(255,255,255,0.05); border-radius:10px;">
-                <option value="todos" ${typeFilter==='todos'?'selected':''}>Todos los tipos</option>
+            <div style="display:flex; gap:12px; flex-wrap:wrap; flex:1; justify-content:flex-end;">
+              <select id="typeFilter" onchange="state.playerTypeFilter=this.value; render();" style="width:auto; max-width:160px; background:rgba(255,255,255,0.05);">
+                <option value="todos" ${typeFilter==='todos'?'selected':''}>Todos</option>
                 <option value="registrado" ${typeFilter==='registrado'?'selected':''}>Registrados</option>
                 <option value="invitado" ${typeFilter==='invitado'?'selected':''}>Invitados</option>
                 <option value="nn" ${typeFilter==='nn'?'selected':''}>NN</option>
               </select>
-              <div style="min-width:240px; position:relative;">
+              <div style="min-width:240px; position:relative; flex:1; max-width:300px;">
                 <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:var(--muted)"></i>
-                <input id="searchPlayers" placeholder="Nombre o código..." value="${esc(state.searchPlayers || '')}" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:12px; padding:12px 16px 12px 40px; width:100%;">
+                <input id="searchPlayers" placeholder="Buscar por nombre..." value="${esc(state.searchPlayers || '')}" style="background:rgba(255,255,255,0.05); padding-left:44px;">
               </div>
             </div>
           </div>
           
           <div class="grid-4">
             ${filtered.map(playerCard).join("") || empty("No se encontraron jugadores.")}
-          </div>
-        </article>
-
-        <article class="panel glass">
-          <p class="eyebrow">Vista Previa</p>
-          <div id="preview" style="display:flex; justify-content:center; margin-top: 10px;">
-            ${poster({name:"Tu jugador",nickname:"Jugador",poster_path:""})}
           </div>
         </article>
       </div>
@@ -789,18 +816,18 @@ function showPlayerModal(p, onConfirm, confirmText = "Confirmar") {
   overlay.className = "modal-overlay";
   overlay.id = "modal-overlay";
   
-  const photoUrl = p.photo_path || p.poster_path || `https://ui-avatars.com/api/?name=${esc(p.name)}&background=random&color=fff&size=128`;
+  const photoUrl = p.photo_path || p.photo_url || p.poster_path || `https://ui-avatars.com/api/?name=${esc(p.name)}&background=random&color=fff&size=128`;
   const typeLabel = p.is_guest ? "Invitado" : (p.is_nn ? "NN" : "Registrado");
 
   overlay.innerHTML = `
     <div class="modal-content">
       <div class="modal-header">
-        <h3 style="margin:0;">Detalle del Jugador</h3>
+        <h3 style="margin:0;">Información del Jugador</h3>
         <button class="btn ghost icon-btn small" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <div class="player-detail-card">
-          <img src="${esc(photoUrl)}" class="player-detail-img">
+          <img src="${esc(photoUrl)}" class="player-detail-img" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p.name)}&background=random&color=fff'">
           <h2 class="player-detail-name">${esc(p.name)}</h2>
           <span class="player-detail-code">${esc(p.player_code || 'SIN CÓDIGO')}</span>
           
@@ -818,31 +845,36 @@ function showPlayerModal(p, onConfirm, confirmText = "Confirmar") {
               <span>${esc(p.position || 'No definida')}</span>
             </div>
             <div class="player-detail-item">
-              <label>Teléfono</label>
-              <span>${esc(p.phone || 'No disponible')}</span>
+              <label>Calificación</label>
+              <span style="color:var(--primary); font-weight:800;">⭐ ${(p.rating || 5.0).toFixed(1)}</span>
             </div>
             <div class="player-detail-item">
               <label>PJ</label>
               <span>${p.matches_played || 0}</span>
             </div>
             <div class="player-detail-item">
-              <label>Goles</label>
-              <span>${p.goals || 0}</span>
+              <label>Goles / Asist.</label>
+              <span>${p.goals || 0} / ${p.assists || 0}</span>
             </div>
           </div>
         </div>
       </div>
-      <div class=\"modal-footer\">
-        <button type=\"button\" class=\"btn primary glow-on-hover\" id=\"modalConfirmBtn\" style=\"flex:1\">${confirmText}</button>
-        <button type=\"button\" class=\"btn ghost\" onclick=\"closeModal()\" style=\"flex:1\">Cancelar</button>
+      <div class="modal-footer">
+        ${onConfirm ? `<button type="button" class="btn primary glow-on-hover" id="modalConfirmBtn" style="flex:1">${confirmText}</button>` : ''}
+        <button type="button" class="btn ghost" onclick="closeModal()" style="flex:1">${onConfirm ? 'Cancelar' : 'Cerrar'}</button>
       </div>
     </div>
   `;
   
   document.body.appendChild(overlay);
-  $("#modalConfirmBtn").onclick = onConfirm;
+  if (onConfirm) $("#modalConfirmBtn").onclick = onConfirm;
   overlay.onclick = (e) => { if(e.target === overlay) closeModal(); };
 }
+
+window.showPlayerDetailModalById = (id) => {
+  const p = player(id);
+  if(p) showPlayerModal(p, null);
+};
 
 function closeModal() {
   $("#modal-overlay")?.remove();
@@ -1383,15 +1415,14 @@ function pitch(m, side){
     const p = player(pId);
     
     if(p) {
-      const bg = p.photo_path || p.photo_url || p.poster_path;
-      const bgStyle = bg ? `background-image:url('${esc(bg)}'); border-color:${t.p};` : `background:var(--bg-panel-solid); border-color:${t.p}; color:var(--text);`;
+      const photoUrl = p.photo_path || p.photo_url || p.poster_path;
+      const bgStyle = photoUrl ? `background-image:url('${esc(photoUrl)}'); border-color:${t.p};` : `background:var(--bg-panel-solid); border-color:${t.p}; color:var(--text);`;
       const isMatchCaptain = Number(m.captain_home_id) === Number(p.id) || Number(m.captain_away_id) === Number(p.id);
       
-      // Use short name for pitch
       const shortName = (p.nickname || p.name.split(" ")[0]).substring(0, 10);
       
-      return `<div class="player-dot" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle}">
-        ${bg ? '' : esc(p.number || '')}
+      return `<div class="player-dot" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle}" onclick="showPlayerDetailModalById(${p.id})">
+        ${photoUrl ? '' : esc(p.number || '')}
         <div class="player-label" style="background: ${isMatchCaptain ? '#fbbf24' : t.p}; color: ${isMatchCaptain ? '#000' : contrast(t.p)}">
            <span style="font-size:0.6rem; opacity:0.8; font-weight:800;">${slotName}</span>
            <span>${esc(shortName)}</span>
