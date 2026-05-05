@@ -1004,7 +1004,7 @@ function partido(){
               <span class="badge" style="background:var(--primary)">⭐ ${homeStars.toFixed(1)}</span>
             </h4>
             <div style="display:flex; flex-direction:column; gap:12px;">
-              ${lineupSelectors("home", match?.lineup_home || [], availIds, canEditHome)}
+              ${lineupSelectors("home", match?.lineup_home || [], availIds, canEditHome, match)}
             </div>
           </div>
           <div class="panel glass" style="border-top: 4px solid ${esc(s.away_primary)};">
@@ -1013,7 +1013,7 @@ function partido(){
               <span class="badge" style="background:var(--primary)">⭐ ${awayStars.toFixed(1)}</span>
             </h4>
             <div style="display:flex; flex-direction:column; gap:12px;">
-              ${lineupSelectors("away", match?.lineup_away || [], availIds, canEditAway)}
+              ${lineupSelectors("away", match?.lineup_away || [], availIds, canEditAway, match)}
             </div>
           </div>
         </div>
@@ -1050,7 +1050,7 @@ function partido(){
     </div>
   </div>`;
 }
-function lineupSelectors(side, selected=[], availIds=[], canEdit){
+function lineupSelectors(side, selected=[], availIds=[], canEdit, match){
   const list = state.players.filter(p => availIds.includes(p.id));
   
   const allSelectedIds = [];
