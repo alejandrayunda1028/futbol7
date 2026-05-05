@@ -68,6 +68,7 @@ def init_db():
         is_registered INTEGER DEFAULT 1,
         is_guest INTEGER DEFAULT 0,
         is_nn INTEGER DEFAULT 0,
+        in_roster INTEGER DEFAULT 0,
         team_side TEXT NOT NULL DEFAULT 'home',
         name TEXT NOT NULL,
         nickname TEXT DEFAULT '',

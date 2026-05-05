@@ -161,6 +161,39 @@ body.theme-white .statline span { background: rgba(0,0,0,0.1); color: #0f172a; }
   100% { background-position: 0 0; }
 }
 
+/* Modals */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 20px; animation: fadeIn 0.3s ease;
+}
+.modal-content {
+  background: var(--panel-bg); border: 1px solid var(--border);
+  border-radius: 24px; max-width: 500px; width: 100%;
+  overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.modal-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.modal-body { padding: 24px; }
+.modal-footer { padding: 20px; border-top: 1px solid var(--border); display: flex; gap: 12px; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.player-detail-card { text-align: center; }
+.player-detail-img { width: 120px; height: 120px; border-radius: 50%; object-fit: cover; margin: 0 auto 20px; border: 4px solid var(--primary); box-shadow: 0 0 20px var(--primary-glow); }
+.player-detail-name { font-size: 1.8rem; font-weight: 800; margin-bottom: 4px; }
+.player-detail-code { font-family: monospace; color: var(--primary); font-size: 1rem; margin-bottom: 20px; display: block; }
+.player-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; text-align: left; background: rgba(255,255,255,0.03); padding: 16px; border-radius: 16px; }
+.player-detail-item label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }
+.player-detail-item span { font-weight: 600; font-size: 0.9rem; }
+
+@media (max-width: 600px) {
+  .modal-content { border-radius: 20px; }
+  .player-detail-name { font-size: 1.5rem; }
+}
+
 /* Forms */
 .form { display: flex; flex-direction: column; gap: 16px; }
 .grid-4 { 

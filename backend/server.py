@@ -450,10 +450,10 @@ def register():
         return jsonify({"error": "El usuario ya existe"}), 400
         
     cur = conn.cursor()
-    # Create player profile first
+    # Create player profile first (NOT in roster by default when self-registering)
     p_code = generate_player_code(conn)
-    cur.execute('''INSERT INTO players (player_code, name, email, phone, is_registered) 
-                   VALUES (?, ?, ?, ?, 1)''', (p_code, display_name, username if "@" in username else "", phone))
+    cur.execute('''INSERT INTO players (player_code, name, email, phone, is_registered, in_roster) 
+                   VALUES (?, ?, ?, ?, 1, 0)''', (p_code, display_name, username if "@" in username else "", phone))
     player_id = cur.lastrowid
     
     # Create user
@@ -559,7 +559,7 @@ def bootstrap():
     
     # Filtering logic based on role
     if user["role"] in ["ADMIN", "CAPTAIN"]:
-        players = conn.execute("SELECT * FROM players ORDER BY team_side, number, name").fetchall()
+        players = conn.execute("SELECT * FROM players WHERE in_roster=1 ORDER BY team_side, number, name").fetchall()
         matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
     else:
         # PLAYER role: Only see matches they are in and players in those matches
@@ -683,7 +683,8 @@ def player_payload():
         "rating": safe_float(body.get("rating"), 0),
         "is_registered": 1 if body.get("is_registered", True) else 0,
         "is_guest": 1 if body.get("is_guest", False) else 0,
-        "is_nn": 1 if body.get("is_nn", False) else 0
+        "is_nn": 1 if body.get("is_nn", False) else 0,
+        "in_roster": 1
     }
 
 @app.route("/api/players/search", methods=["GET"])
@@ -705,7 +706,7 @@ def get_players():
     if not user: return err, code
     conn = connect()
     if user["role"] in ["ADMIN", "CAPTAIN"]:
-        rows = conn.execute("SELECT * FROM players ORDER BY team_side, number, name").fetchall()
+        rows = conn.execute("SELECT * FROM players WHERE in_roster=1 ORDER BY team_side, number, name").fetchall()
     else:
         # PLAYER only sees themselves or players in their matches
         # For simplicity in this endpoint, if they are not admin/captain, we return minimal info
@@ -732,13 +733,25 @@ def create_player():
         p["player_code"] = None
         
     cur.execute('''INSERT INTO players
-    (player_code, is_registered, is_guest, is_nn, team_side, name, nickname, email, phone, number, position, photo_path, poster_path, goals, assists, matches_played, rating)
-    VALUES (:player_code, :is_registered, :is_guest, :is_nn, :team_side, :name, :nickname, :email, :phone, :number, :position, :photo_path, :poster_path, :goals, :assists, :matches_played, :rating)''', p)
+    (player_code, is_registered, is_guest, is_nn, in_roster, team_side, name, nickname, email, phone, number, position, photo_path, poster_path, goals, assists, matches_played, rating)
+    VALUES (:player_code, :is_registered, :is_guest, :is_nn, :in_roster, :team_side, :name, :nickname, :email, :phone, :number, :position, :photo_path, :poster_path, :goals, :assists, :matches_played, :rating)''', p)
     conn.commit()
     row = conn.execute("SELECT * FROM players WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
     socketio.emit("data_changed", {"type": "players"})
     return jsonify(row), 201
+
+@app.route("/api/players/<int:player_id>/roster", methods=["POST"])
+def add_to_roster(player_id):
+    user, err, code = require_roles({"ADMIN", "CAPTAIN"})
+    if not user: return err, code
+    conn = connect()
+    conn.execute("UPDATE players SET in_roster=1 WHERE id=?", (player_id,))
+    conn.commit()
+    row = conn.execute("SELECT * FROM players WHERE id=?", (player_id,)).fetchone()
+    conn.close()
+    socketio.emit("data_changed", {"type": "players"})
+    return jsonify(row)
 
 @app.route("/api/players/<int:player_id>", methods=["PUT"])
 def update_player(player_id):

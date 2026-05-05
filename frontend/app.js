@@ -330,9 +330,26 @@ function bind(){
   });
 
   $$(".avail-check").forEach(chk => {
-    chk.addEventListener("change", () => {
-      render(); // to update selectors
-      if($("#matchForm")) $("#matchForm").requestSubmit();
+    chk.addEventListener("click", (e) => {
+      e.preventDefault(); // Control manual via modal
+      const pid = Number(chk.value);
+      const isChecking = !chk.checked;
+      const p = player(pid);
+      
+      if (!p) return;
+      
+      if (!isChecking) {
+        // Just remove without modal if unchecking
+        chk.checked = false;
+        saveMatchConvocatoria();
+        return;
+      }
+
+      showPlayerModal(p, () => {
+        chk.checked = true;
+        closeModal();
+        saveMatchConvocatoria();
+      }, "Confirmar Asistencia");
     });
   });
 
@@ -675,23 +692,93 @@ function getPlayerForm(){
 }
 
 async function searchPlayerByID() {
-  const code = $("#searchCodeInput").value.trim();
+  const code = $("#searchCodeInput").value.trim().toUpperCase();
   if(!code) return toast("Ingresa un código");
   try {
-    const p = await api(`/api/players/search?code=${code.toUpperCase()}`);
-    toast("Jugador encontrado: " + p.name);
-    $("#playerNameInput").value = p.name;
-    const f = $("#playerForm");
-    f.name.value = p.name;
-    f.email.value = p.email || "";
-    f.phone.value = p.phone || "";
-    f.number.value = p.number || 0;
-    f.position.value = p.position || "";
-    if(p.poster_path) $("#preview").innerHTML = poster(p);
+    const p = await api(`/api/players/search?code=${code}`);
+    
+    // Check if already in roster
+    if (state.players.find(x => x.id === p.id)) {
+      return toast("Este jugador ya está en tu Plantilla General", true);
+    }
+
+    showPlayerModal(p, async () => {
+      await api(`/api/players/${p.id}/roster`, {method:"POST"});
+      toast("Jugador agregado a la plantilla");
+      closeModal();
+      await load();
+      render();
+    }, "Agregar a Plantilla");
+    
   } catch(err) {
     toast("No se encontró ningún jugador con ese ID", true);
   }
 }
+
+function showPlayerModal(p, onConfirm, confirmText = "Confirmar") {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "modal-overlay";
+  
+  const photoUrl = p.photo_path || p.poster_path || `https://ui-avatars.com/api/?name=${esc(p.name)}&background=random&color=fff&size=128`;
+  const typeLabel = p.is_guest ? "Invitado" : (p.is_nn ? "NN" : "Registrado");
+
+  overlay.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 style="margin:0;">Detalle del Jugador</h3>
+        <button class="btn ghost icon-btn small" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="player-detail-card">
+          <img src="${esc(photoUrl)}" class="player-detail-img">
+          <h2 class="player-detail-name">${esc(p.name)}</h2>
+          <span class="player-detail-code">${esc(p.player_code || 'SIN CÓDIGO')}</span>
+          
+          <div class="player-detail-grid">
+            <div class="player-detail-item">
+              <label>Estado</label>
+              <span>${typeLabel}</span>
+            </div>
+            <div class="player-detail-item">
+              <label>Número</label>
+              <span>#${p.number || 0}</span>
+            </div>
+            <div class="player-detail-item">
+              <label>Posición</label>
+              <span>${esc(p.position || 'No definida')}</span>
+            </div>
+            <div class="player-detail-item">
+              <label>Teléfono</label>
+              <span>${esc(p.phone || 'No disponible')}</span>
+            </div>
+            <div class="player-detail-item">
+              <label>PJ</label>
+              <span>${p.matches_played || 0}</span>
+            </div>
+            <div class="player-detail-item">
+              <label>Goles</label>
+              <span>${p.goals || 0}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn primary glow-on-hover" id="modalConfirmBtn" style="flex:1">${confirmText}</button>
+        <button class="btn ghost" onclick="closeModal()" style="flex:1">Cancelar</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  $("#modalConfirmBtn").onclick = onConfirm;
+  overlay.onclick = (e) => { if(e.target === overlay) closeModal(); };
+}
+
+function closeModal() {
+  $("#modal-overlay")?.remove();
+}
+window.closeModal = closeModal;
 async function uploadPhoto(e){
   const file = e.target.files[0]; 
   if(!file) return;
@@ -812,15 +899,18 @@ function partido(){
           ${canEdit ? `
           <p class="muted" style="margin-bottom:16px">Selecciona quiénes van a jugar hoy desde la plantilla. Solo ellos podrán ser asignados a equipos.</p>
           <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:10px; max-height:300px; overflow-y:auto; padding:10px; background:rgba(0,0,0,0.2); border-radius:12px; border:1px solid var(--border);">
-            ${state.players.map(p => `
-              <label class="avail-item ${availIds.includes(p.id) ? 'active' : ''}">
-                <input type="checkbox" name="avail_${p.id}" value="${p.id}" class="avail-check" ${availIds.includes(p.id) ? 'checked' : ''} style="display:none">
-                <div style="display:flex; align-items:center; gap:8px; justify-content:center;">
-                  <span style="font-family:monospace; opacity:0.5; font-size:0.7rem;">${esc(p.player_code || '---')}</span>
-                  <span style="font-weight:700;">#${p.number} ${esc(p.nickname || p.name)}</span>
-                </div>
-              </label>
-            `).join('')}
+            ${state.players.map(p => {
+              const isChecked = availIds.includes(p.id);
+              return `
+                <label class="avail-item ${isChecked ? 'active' : ''}">
+                  <input type="checkbox" value="${p.id}" class="avail-check" ${isChecked ? 'checked' : ''} style="display:none">
+                  <div style="display:flex; align-items:center; gap:8px; justify-content:center;">
+                    <span style="font-family:monospace; opacity:0.5; font-size:0.7rem;">${esc(p.player_code || '---')}</span>
+                    <span style="font-weight:700;">#${p.number} ${esc(p.nickname || p.name)}</span>
+                  </div>
+                </label>
+              `;
+            }).join('')}
           </div>
           ` : `
           <div class="row" style="flex-wrap:wrap; gap:8px;">
