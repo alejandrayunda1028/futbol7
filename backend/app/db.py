@@ -104,7 +104,9 @@ def init_db():
         score_away INTEGER DEFAULT 0,
         status TEXT DEFAULT 'programado',
         lineup_home TEXT DEFAULT '[]',
-        lineup_away TEXT DEFAULT '[]'
+        lineup_away TEXT DEFAULT '[]',
+        captain_home_id INTEGER DEFAULT NULL,
+        captain_away_id INTEGER DEFAULT NULL
     );
 
     CREATE TABLE IF NOT EXISTS videos (
@@ -146,7 +148,7 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL,
         display_name TEXT NOT NULL,
-        role TEXT DEFAULT 'user',
+        role TEXT DEFAULT 'PLAYER',
         message TEXT NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -157,6 +159,8 @@ def init_db():
         ("captain_home_id", "ALTER TABLE settings ADD COLUMN captain_home_id INTEGER DEFAULT NULL"),
         ("captain_away_id", "ALTER TABLE settings ADD COLUMN captain_away_id INTEGER DEFAULT NULL"),
         ("available_players", "ALTER TABLE matches ADD COLUMN available_players TEXT DEFAULT '[]'"),
+        ("captain_home_id", "ALTER TABLE matches ADD COLUMN captain_home_id INTEGER DEFAULT NULL"),
+        ("captain_away_id", "ALTER TABLE matches ADD COLUMN captain_away_id INTEGER DEFAULT NULL"),
         ("has_stream", "ALTER TABLE matches ADD COLUMN has_stream INTEGER DEFAULT 0"),
         ("stream_url", "ALTER TABLE matches ADD COLUMN stream_url TEXT DEFAULT ''"),
         ("video_url", "ALTER TABLE matches ADD COLUMN video_url TEXT DEFAULT ''"),

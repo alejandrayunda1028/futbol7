@@ -161,11 +161,25 @@ $("#registerForm")?.addEventListener("submit", async (e)=>{
   }
 });
 
+function resetLoginButton() {
+  const btn = $("#loginForm button");
+  if(btn) {
+    btn.innerHTML = "Ingresar al Studio";
+    btn.disabled = false;
+  }
+  const rBtn = $("#registerForm button");
+  if(rBtn) {
+    rBtn.innerHTML = "Registrarse";
+    rBtn.disabled = false;
+  }
+}
+
 $("#logoutBtn").onclick = async () => {
   try{ await api("/api/logout"); }catch{}
   localStorage.removeItem("f7_clean_token");
   state.token = "";
   state.user = null;
+  resetLoginButton();
   if(socket) socket.disconnect();
   shell();
 };
@@ -214,6 +228,7 @@ function shell(){
   const filteredNav = nav.filter(n => {
     if (n[0] === "ajustes") return isAdmin;
     if (n[0] === "usuarios") return isAdmin;
+    if (n[0] === "jugadores") return isAdmin || isCap; // Player doesn't see general roster
     return true;
   });
 
@@ -316,8 +331,19 @@ function bind(){
 
   $$(".avail-check").forEach(chk => {
     chk.addEventListener("change", () => {
+      render(); // to update selectors
       if($("#matchForm")) $("#matchForm").requestSubmit();
     });
+  });
+
+  $$(".match-meta-input").forEach(sel => {
+    sel.addEventListener("change", () => {
+      if($("#matchForm")) $("#matchForm").requestSubmit();
+    });
+  });
+
+  $("#saveMatchBtn")?.addEventListener("click", () => {
+    $("#matchForm")?.requestSubmit();
   });
 
   $("#settingsForm")?.addEventListener("submit", saveSettings);
@@ -471,116 +497,168 @@ function poster(player){
   const initial = (player.nickname || player.name || "J").trim()[0] || "J";
   return `<div class="poster placeholder"><strong>${esc(initial.toUpperCase())}</strong></div>`;
 }
-function playerCard(p){
-  const isReg = !!p.is_registered;
-  const statusHtml = isReg 
-    ? `<span class="badge" style="background:var(--success); color:#fff"><i class="fa-solid fa-check-circle"></i> Registrado</span>`
-    : `<span class="badge" style="background:var(--muted); color:#fff"><i class="fa-solid fa-user-clock"></i> Invitado</span>`;
-    
-  return `<article class="player-card">
-    ${poster(p)}
-    <div class="player-info">
-      <div>
-        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-          <h3 style="margin:0">${esc(p.nickname || p.name)}</h3>
-          <span style="font-family:monospace; font-weight:700; color:var(--primary); font-size:0.8rem">${esc(p.player_code || '')}</span>
-        </div>
-        <p class="muted">#${esc(p.number)} · ${esc(p.position || "Sin posición")}</p>
-        <div style="margin-top:4px">${statusHtml}</div>
-      </div>
-      <div class="statline"><span>${p.matches_played||0} PJ</span><span>${p.goals||0} Goles</span><span>⭐ ${p.rating||0}</span></div>
-      <div class="row">
-        ${state.user.role !== 'PLAYER' ? `
-        <button class="btn ghost icon-btn" data-edit-player="${p.id}"><i class="fa-solid fa-pen"></i></button>
-        ${state.user.role === 'ADMIN' ? `<button class="btn danger-ghost icon-btn" data-del-player="${p.id}"><i class="fa-solid fa-trash"></i></button>` : ''}
-        ` : ''}
+function playerCard(p) {
+  const isAdmin = state.user.role === "ADMIN";
+  const isCap = state.user.role === "CAPTAIN";
+  const canEdit = isAdmin || isCap;
+  
+  let typeTag = "Registrado";
+  if (p.is_guest) typeTag = "Invitado";
+  if (p.is_nn) typeTag = "NN";
+
+  return `
+  <div class="player-card">
+    <div class="player-card-header">
+      <img src="${esc(p.photo_path || '')}" class="player-card-img" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p.name)}&background=random&color=fff'">
+      <div class="player-card-info">
+        <h4 class="player-card-name" title="${esc(p.name)}">${esc(p.name)}</h4>
+        <span class="player-card-code">${esc(p.player_code || '---')}</span>
       </div>
     </div>
-  </article>`;
+    
+    <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 4px;">
+      <i class="fa-solid fa-person-running"></i> ${esc(p.position || 'Sin posición')} · #${p.number || '0'}
+    </div>
+
+    <div class="player-card-stats">
+      <div><span>PJ</span><b>${p.matches_played || 0}</b></div>
+      <div><span>Goles</span><b>${p.goals || 0}</b></div>
+      <div><span>Asist</span><b>${p.assists || 0}</b></div>
+      <div><span>⭐</span><b>${(p.rating || 5.0).toFixed(1)}</b></div>
+    </div>
+
+    <div class="player-card-footer">
+      <span class="player-card-tag">${typeTag}</span>
+      <div class="row" style="gap:8px">
+        ${canEdit ? `<button class="btn ghost icon-btn small" onclick="editPlayer(${p.id})"><i class="fa-solid fa-pen"></i></button>` : ''}
+        ${isAdmin ? `<button class="btn danger-ghost icon-btn small" onclick="del('players', ${p.id}, 'jugadores')"><i class="fa-solid fa-trash"></i></button>` : ''}
+      </div>
+    </div>
+  </div>`;
 }
 
 function jugadores(){
   const isAdmin = state.user.role === "ADMIN";
   const isCap = state.user.role === "CAPTAIN";
-  const canEdit = isAdmin || isCap;
+  if (!isAdmin && !isCap) return empty("No tienes permiso para ver la plantilla general.");
 
   const q = (state.searchPlayers || "").toLowerCase();
-  const filtered = state.players.filter(p => 
-    p.name.toLowerCase().includes(q) || 
-    (p.player_code || "").toLowerCase().includes(q) ||
-    (p.email || "").toLowerCase().includes(q) ||
-    (p.phone || "").toLowerCase().includes(q) ||
-    (p.nickname || "").toLowerCase().includes(q)
-  );
+  const typeFilter = state.playerTypeFilter || "todos";
+  
+  const filtered = state.players.filter(p => {
+    const matchesQuery = p.name.toLowerCase().includes(q) || (p.player_code || "").toLowerCase().includes(q);
+    const matchesType = typeFilter === "todos" || 
+                        (typeFilter === "registrado" && !p.is_guest && !p.is_nn) ||
+                        (typeFilter === "invitado" && p.is_guest) ||
+                        (typeFilter === "nn" && p.is_nn);
+    return matchesQuery && matchesType;
+  });
 
   return `
-  ${canEdit ? `
-  <section class="two-cols">
-    <article class="panel glass">
-      <p class="eyebrow">${state.editPlayer ? "Editar" : "Nuevo jugador"}</p>
-      <h2>${state.editPlayer ? "Editar jugador" : "Registrar jugador"}</h2>
-      
-      <div style="display:flex; gap:10px; margin-bottom:20px; background:rgba(0,0,0,0.2); padding:6px; border-radius:12px;">
-        <button class="btn ghost ptype-btn active" data-type="registrado" style="flex:1">Registrado</button>
-        <button class="btn ghost ptype-btn" data-type="invitado" style="flex:1">Invitado</button>
-        <button class="btn ghost ptype-btn" data-type="nn" style="flex:1">NN / Sin datos</button>
-      </div>
-
-      <form id="playerForm" class="form-grid">
-        <input type="hidden" name="player_type" id="playerTypeInput" value="registrado">
+  <div style="display: flex; flex-direction: column; gap: 32px;">
+    
+    <section class="two-cols" style="align-items: flex-start; gap: 24px;">
+      <article class="panel glass" style="position: sticky; top: 20px;">
+        <p class="eyebrow">${state.editPlayer ? "Modificando" : "Gestión"}</p>
+        <h2 style="margin-bottom: 20px;">${state.editPlayer ? "Editar jugador" : "Registrar jugador"}</h2>
         
-        <div id="regField" class="full" style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:12px;">
-          <label>Buscar por Código (JUG-XXXX)
-            <div class="row">
-              <input id="searchCodeInput" placeholder="Ej: JUG-0001">
-              <button type="button" class="btn primary" id="searchCodeBtn"><i class="fa-solid fa-magnifying-glass"></i></button>
+        <div style="display:flex; gap:10px; margin-bottom:24px; background:rgba(0,0,0,0.2); padding:6px; border-radius:12px; border: 1px solid var(--border);">
+          <button class="btn ghost ptype-btn active" data-type="registrado" style="flex:1">Registrado</button>
+          <button class="btn ghost ptype-btn" data-type="invitado" style="flex:1">Invitado</button>
+          <button class="btn ghost ptype-btn" data-type="nn" style="flex:1">NN</button>
+        </div>
+
+        <form id="playerForm" class="form-grid">
+          <input type="hidden" name="player_type" id="playerTypeInput" value="registrado">
+          
+          <div id="regField" class="full" style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:12px; border: 1px solid var(--border);">
+            <label>Buscar por Código (JUG-XXXX)
+              <div class="row" style="margin-top: 8px;">
+                <input id="searchCodeInput" placeholder="Ej: JUG-0001" style="flex:1">
+                <button type="button" class="btn primary" id="searchCodeBtn"><i class="fa-solid fa-magnifying-glass"></i></button>
+              </div>
+            </label>
+          </div>
+
+          <div id="manualFields" class="full form-grid" style="grid-template-columns: 1fr 1fr; gap:16px;">
+            <label class="full">Nombre Completo<input name="name" id="playerNameInput" required placeholder="Ej: Ricardo M"></label>
+            <label>Teléfono<input name="phone" placeholder="+57..."></label>
+            <label>Número<input name="number" type="number" min="0" max="99" value="0"></label>
+            <label class="full">Posición Preferida
+              <select name="position">
+                <option value="">Cualquiera</option>
+                ${slots.map(s => `<option value="${s}">${s}</option>`).join("")}
+              </select>
+            </label>
+            <label class="full">Calificación (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10"></label>
+          </div>
+
+          <div id="nnMsg" class="full hidden" style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:12px; color:var(--muted); border: 1px solid var(--border);">
+            <p><i class="fa-solid fa-circle-info"></i> El jugador se guardará con un alias automático.</p>
+          </div>
+          
+          <div class="full">
+            <label>Foto del Jugador (Opcional)</label>
+            <div style="display:flex; gap:12px; align-items:center; margin-top:8px;">
+              <label class="btn ghost btn-small" style="cursor:pointer; flex:1">
+                <i class="fa-solid fa-camera"></i> Subir Foto
+                <input id="playerPhoto" type="file" accept="image/*" hidden>
+              </label>
+              <input name="photo_path" type="hidden">
+              <input name="poster_path" type="hidden">
             </div>
-          </label>
-        </div>
+            <p class="muted" style="font-size:0.7rem; margin-top:4px;">Se generará una tarjeta de presentación automáticamente.</p>
+          </div>
 
-        <div id="manualFields" class="full form-grid" style="grid-template-columns: 1fr 1fr; gap:12px;">
-          <label class="full">Nombre Completo<input name="name" id="playerNameInput" required placeholder="Ej: Ricardo M"></label>
-          <label>Correo (Opcional)<input name="email" type="email"></label>
-          <label>Teléfono (Opcional)<input name="phone"></label>
-          <label>Número Camiseta<input name="number" type="number" min="0" max="99" value="0"></label>
-          <label>Posición Preferida<input name="position" placeholder="Delantero"></label>
-          <label>Calificación Inicial (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10"></label>
-        </div>
+          <div id="statsFields" class="full form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap:12px; background:rgba(0,0,0,0.2); padding:12px; border-radius:12px; margin-top:10px;">
+            <label>PJ<input name="matches_played" type="number" value="0"></label>
+            <label>Goles<input name="goals" type="number" value="0"></label>
+            <label>Asist.<input name="assists" type="number" value="0"></label>
+          </div>
+          
+          <div class="full row" style="margin-top:20px; gap: 12px;">
+            <button class="btn primary glow-on-hover" style="flex:2" id="playerSubmitBtn"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar Cambios" : "Crear Jugador"}</button>
+            <button type="button" class="btn ghost" id="clearPlayer" style="flex:1">Cancelar</button>
+          </div>
+          <div id="playerMsg" class="full" style="font-size:0.8rem; min-height:24px;"></div>
+        </form>
+      </article>
 
-        <div id="nnMsg" class="full hidden" style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:12px; color:var(--muted);">
-          <p><i class="fa-solid fa-circle-info"></i> Se agregará un jugador sin datos personales con un alias automático.</p>
-        </div>
-        
-        <label class="full">Foto del jugador (Generar Tarjeta)<input id="playerPhoto" type="file" accept="image/*"></label>
-        <input name="photo_path" type="hidden"><input name="poster_path" type="hidden">
-        
-        <div class="full row" style="margin-top:10px;">
-          <button class="btn primary glow-on-hover"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar" : "Crear Jugador"}</button>
-          <button type="button" class="btn ghost" id="clearPlayer">Cancelar</button>
-        </div>
-        <div id="playerMsg" class="full"></div>
-      </form>
-    </article>
-    <article class="panel glass">
-      <p class="eyebrow">Vista previa</p>
-      <h2>Ficha de Presentación</h2>
-      <div id="preview" style="display:flex; justify-content:center;">${poster({name:"Tu jugador",nickname:"Jugador",poster_path:""})}</div>
-    </article>
-  </section>
-  ` : ''}
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 24px; min-width: 0;">
+        <article class="panel glass">
+          <div class="row" style="justify-content:space-between; margin-bottom:20px; align-items:center; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h2 style="font-size: 1.8rem;">Plantilla General</h2>
+              <p class="muted">Lista de jugadores registrados e invitados.</p>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <select id="typeFilter" onchange="state.playerTypeFilter=this.value; render();" style="width:auto; padding:10px 16px; background:rgba(255,255,255,0.05); border-radius:10px;">
+                <option value="todos" ${typeFilter==='todos'?'selected':''}>Todos los tipos</option>
+                <option value="registrado" ${typeFilter==='registrado'?'selected':''}>Registrados</option>
+                <option value="invitado" ${typeFilter==='invitado'?'selected':''}>Invitados</option>
+                <option value="nn" ${typeFilter==='nn'?'selected':''}>NN</option>
+              </select>
+              <div style="min-width:240px; position:relative;">
+                <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:var(--muted)"></i>
+                <input id="searchPlayers" placeholder="Nombre o código..." value="${esc(state.searchPlayers || '')}" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:12px; padding:12px 16px 12px 40px; width:100%;">
+              </div>
+            </div>
+          </div>
+          
+          <div class="grid-4">
+            ${filtered.map(playerCard).join("") || empty("No se encontraron jugadores.")}
+          </div>
+        </article>
 
-  <section class="panel glass" style="margin-top:24px">
-    <div class="row" style="justify-content:space-between; margin-bottom:20px; align-items:center;">
-      <div>
-        <h2>Plantilla General</h2>
-        <p class="muted">Buscar y gestionar jugadores registrados o invitados.</p>
+        <article class="panel glass">
+          <p class="eyebrow">Vista Previa</p>
+          <div id="preview" style="display:flex; justify-content:center; margin-top: 10px;">
+            ${poster({name:"Tu jugador",nickname:"Jugador",poster_path:""})}
+          </div>
+        </article>
       </div>
-      <div style="width:300px">
-        <input id="searchPlayers" placeholder="🔍 Buscar por nombre o código..." value="${esc(state.searchPlayers || '')}" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:12px; padding:12px 20px; width:100%;">
-      </div>
-    </div>
-    <div class="grid-4">${filtered.map(playerCard).join("") || empty("No se encontraron jugadores.")}</div>
-  </section>`;
+    </section>
+  </div>`;
 }
 function getPlayerForm(){
   const f = Object.fromEntries(new FormData($("#playerForm")).entries());
@@ -615,21 +693,42 @@ async function searchPlayerByID() {
   }
 }
 async function uploadPhoto(e){
-  const file = e.target.files[0]; if(!file) return;
+  const file = e.target.files[0]; 
+  if(!file) return;
+  
   const form = $("#playerForm");
-  $("#playerMsg").innerHTML = `<div class="muted"><i class="fa-solid fa-spinner fa-spin"></i> Subiendo y creando presentación con IA...</div>`;
+  const msg = $("#playerMsg");
+  const btn = $("#playerSubmitBtn");
+  
+  msg.innerHTML = `<div class="muted"><i class="fa-solid fa-spinner fa-spin"></i> Subiendo y generando tarjeta...</div>`;
+  if(btn) btn.disabled = true;
+
   const fd = new FormData();
   fd.append("photo", file);
-  ["name","nickname","number","position","matches_played","goals","assists"].forEach(k=>fd.append(k, form[k]?.value || ""));
-  fd.append("team_side", "none");
+  
+  // Send current form data to use in poster generation
+  ["name","number","position","matches_played","goals","assists"].forEach(k => {
+    fd.append(k, form[k]?.value || "");
+  });
+  fd.append("team_side", "home");
+
   try{
     const data = await api("/api/upload-photo", {method:"POST", body:fd});
     form.photo_path.value = data.photo_path;
     form.poster_path.value = data.poster_path;
-    $("#preview").innerHTML = poster({...getPlayerForm(), photo_path:data.photo_path, poster_path:data.poster_path});
-    $("#playerMsg").innerHTML = `<div style="color:var(--success)"><i class="fa-solid fa-circle-check"></i> Presentación generada.</div>`;
-  }catch(err){
-    $("#playerMsg").innerHTML = `<div style="color:var(--danger)"><i class="fa-solid fa-circle-xmark"></i> ${esc(err.message)}</div>`;
+    
+    // Update preview
+    const previewData = {...getPlayerForm(), photo_path: data.photo_path, poster_path: data.poster_path};
+    $("#preview").innerHTML = poster(previewData);
+    
+    msg.innerHTML = `<div style="color:var(--success)"><i class="fa-solid fa-circle-check"></i> Imagen cargada con éxito.</div>`;
+    toast("Imagen procesada correctamente");
+  } catch(err) {
+    console.error(err);
+    msg.innerHTML = `<div style="color:var(--danger)"><i class="fa-solid fa-circle-xmark"></i> Error: ${esc(err.message)}</div>`;
+    toast("No tienes permisos o el archivo es inválido", true);
+  } finally {
+    if(btn) btn.disabled = false;
   }
 }
 async function savePlayer(e){
@@ -655,113 +754,157 @@ function partido(){
   if(!s) return empty("Cargando ajustes...");
   const match = state.editMatch ? state.matches.find(m => m.id === state.editMatch) : (state.matches[0] || null);
   
+  if(!match && state.user.role === 'PLAYER') {
+    return `
+    <section class="panel glass" style="text-align:center; padding:60px 20px;">
+      <i class="fa-solid fa-calendar-xmark" style="font-size:4rem; color:var(--muted); margin-bottom:20px; opacity:0.3;"></i>
+      <h2>No estás convocado a ningún partido</h2>
+      <p class="muted" style="max-width:500px; margin:12px auto 24px;">Cuando el capitán te agregue a la convocatoria de un partido, podrás ver los equipos y la información aquí.</p>
+    </section>`;
+  }
+
   const isAdmin = state.user.role === "ADMIN";
   const isCap = state.user.role === "CAPTAIN";
   const isManager = match && (match.managers || []).includes(state.user.player_id);
   const canEdit = isAdmin || isCap || isManager;
 
+  const availIds = match?.available_players || [];
   const homeStars = (match?.lineup_home || []).reduce((acc,id)=>acc+(player(id)?.rating||0),0);
   const awayStars = (match?.lineup_away || []).reduce((acc,id)=>acc+(player(id)?.rating||0),0);
-  const balanceDiff = Math.abs(homeStars - awayStars);
-  const isUnbalanced = balanceDiff > 8;
-
-  const canEditHome = isAdmin || (isCap && state.user.id === s.captain_home_id) || isManager;
-  const canEditAway = isAdmin || (isCap && state.user.id === s.captain_away_id) || isManager;
+  
+  const canEditHome = isAdmin || (isCap && state.user.id === s.captain_home_id) || isManager || (match?.captain_home_id === state.user.player_id);
+  const canEditAway = isAdmin || (isCap && state.user.id === s.captain_away_id) || isManager || (match?.captain_away_id === state.user.player_id);
 
   return `
-  <section class="two-cols">
+  <div style="display: flex; flex-direction: column; gap: 32px;">
+    
+    <!-- CARD 1: INFORMACIÓN -->
     <article class="panel glass">
-      <p class="eyebrow">${match ? "Edición de Partido" : "Nuevo Partido"}</p>
-      <h2>${match ? "Gestión de Formaciones" : "Publicar Partido"}</h2>
-      <form id="matchForm" class="form-grid">
-        <label class="full">Título del Encuentro<input name="title" value="${esc(match?.title || state.settings.next_match_title)}" ${isAdmin?'':'readonly'}></label>
-        
+      <div class="row" style="justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px;">
+        <div style="flex: 1; min-width: 300px;">
+          <p class="eyebrow">${match?.status.toUpperCase() || 'PROGRAMADO'}</p>
+          <h2 style="font-size: 2rem; margin-top: 4px;">${esc(match?.title || "Partido de Hoy")}</h2>
+          <p class="muted" style="margin-top: 8px;">
+            <i class="fa-regular fa-calendar"></i> ${esc(match?.match_date || "Pendiente")} &nbsp;|&nbsp; 
+            <i class="fa-solid fa-location-dot"></i> ${esc(match?.venue || "Cancha principal")}
+          </p>
+        </div>
         ${isAdmin ? `
-        <div class="full panel glass" style="padding:16px; margin-bottom:0">
-          <h3><i class="fa-solid fa-list-check"></i> Disponibilidad de Jugadores (Call-up)</h3>
-          <p class="muted" style="margin-bottom:12px">Marca quiénes jugarán este partido. Otros roles solo podrán elegir de esta lista.</p>
-          <div style="display:flex; flex-wrap:wrap; gap:12px; max-height:200px; overflow-y:auto; padding-right:10px;">
+        <div class="row" style="gap: 12px;">
+          <button class="btn primary glow-on-hover" onclick="$('#matchForm').requestSubmit()"><i class="fa-solid fa-floppy-disk"></i> Guardar Cambios</button>
+          <button class="btn ghost" type="button" id="clearMatch"><i class="fa-solid fa-plus"></i> Crear Nuevo</button>
+        </div>
+        ` : ''}
+      </div>
+    </article>
+
+    <div class="two-cols" style="align-items: flex-start; gap: 32px;">
+      
+      <div style="display: flex; flex-direction: column; gap: 32px; flex: 1.2; min-width: 0;">
+        
+        <!-- CARD 2: CONVOCATORIA -->
+        <article class="panel glass">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <h3 style="margin:0;"><i class="fa-solid fa-list-check"></i> 1. Convocatoria del Partido</h3>
+            <span class="badge" style="background:rgba(255,255,255,0.05); color:var(--primary);">${availIds.length} Seleccionados</span>
+          </div>
+          
+          ${canEdit ? `
+          <p class="muted" style="margin-bottom:16px">Selecciona quiénes van a jugar hoy desde la plantilla. Solo ellos podrán ser asignados a equipos.</p>
+          <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:10px; max-height:300px; overflow-y:auto; padding:10px; background:rgba(0,0,0,0.2); border-radius:12px; border:1px solid var(--border);">
             ${state.players.map(p => `
-              <label style="flex-direction:row; align-items:center; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:8px; gap:8px;">
-                <input type="checkbox" name="avail_${p.id}" value="${p.id}" class="avail-check" ${match?.available_players?.includes(p.id) ? 'checked' : ''}>
-                #${p.number} ${esc(p.nickname || p.name)} (⭐${p.rating})
+              <label class="avail-item ${availIds.includes(p.id) ? 'active' : ''}">
+                <input type="checkbox" name="avail_${p.id}" value="${p.id}" class="avail-check" ${availIds.includes(p.id) ? 'checked' : ''} style="display:none">
+                <div style="display:flex; align-items:center; gap:8px; justify-content:center;">
+                  <span style="font-family:monospace; opacity:0.5; font-size:0.7rem;">${esc(p.player_code || '---')}</span>
+                  <span style="font-weight:700;">#${p.number} ${esc(p.nickname || p.name)}</span>
+                </div>
               </label>
             `).join('')}
           </div>
-        </div>
-        ` : ''}
+          ` : `
+          <div class="row" style="flex-wrap:wrap; gap:8px;">
+            ${availIds.length ? availIds.map(id => {
+              const p = player(id);
+              return p ? `<span class="badge" style="background:rgba(255,255,255,0.05); padding:8px 12px;">#${p.number} ${esc(p.name)}</span>` : '';
+            }).join('') : empty("No hay jugadores convocados aún.")}
+          </div>
+          `}
+        </article>
 
-        ${(isAdmin || isCap) && match ? `
-        <div class="full panel glass" style="padding:16px; margin-top:12px">
-          <h3><i class="fa-solid fa-user-shield"></i> Gestores del Partido</h3>
-          <p class="muted">Asigna jugadores para que ayuden a gestionar este partido específico.</p>
-          <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
-            ${(match.managers || []).map(mid => {
-              const p = player(mid);
-              return `<div class="row" style="background:rgba(255,255,255,0.05); padding:8px 12px; border-radius:8px;">
-                <span>${p ? esc(p.name) : 'ID: '+mid}</span>
-                <button type="button" class="btn danger-ghost icon-btn small" onclick="removeManager(${match.id}, ${mid})"><i class="fa-solid fa-xmark"></i></button>
-              </div>`;
-            }).join('')}
-            <div class="row">
-              <select id="newManagerSelect" style="flex:1">
-                <option value="">Seleccionar jugador...</option>
-                ${state.players.filter(p => !(match.managers||[]).includes(p.id)).map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.player_code)})</option>`).join('')}
+        <!-- CARD 3: CAPITANES DE PARTIDO -->
+        <article class="panel glass">
+          <h3><i class="fa-solid fa-crown"></i> 2. Capitanes del Partido</h3>
+          <p class="muted" style="margin-bottom:16px">Solo se pueden elegir capitanes entre los jugadores convocados.</p>
+          <div class="form-grid">
+            <label>Capitán Local (Arma Equipo A)
+              <select name="captain_home_id" class="match-meta-input" ${canEdit?'':'disabled'}>
+                <option value="">-- Seleccionar convocado --</option>
+                ${state.players.filter(p => availIds.includes(p.id)).map(p => `<option value="${p.id}" ${match?.captain_home_id===p.id?'selected':''}>${esc(p.name)} (${esc(p.player_code)})</option>`).join('')}
               </select>
-              <button type="button" class="btn ghost small" onclick="addManager(${match.id})"><i class="fa-solid fa-plus"></i> Añadir</button>
+            </label>
+            <label>Capitán Rival (Arma Equipo B)
+              <select name="captain_away_id" class="match-meta-input" ${canEdit?'':'disabled'}>
+                <option value="">-- Seleccionar convocado --</option>
+                ${state.players.filter(p => availIds.includes(p.id)).map(p => `<option value="${p.id}" ${match?.captain_away_id===p.id?'selected':''}>${esc(p.name)} (${esc(p.player_code)})</option>`).join('')}
+              </select>
+            </label>
+          </div>
+        </article>
+
+        <!-- CARD 4: EQUIPOS -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; min-width: 0;">
+          <div class="panel glass" style="border-top: 4px solid ${esc(s.home_primary)};">
+            <h4 style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+              ${esc(s.home_team_name)} 
+              <span class="badge" style="background:var(--primary)">⭐ ${homeStars.toFixed(1)}</span>
+            </h4>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              ${lineupSelectors("home", match?.lineup_home || [], availIds, canEditHome)}
+            </div>
+          </div>
+          <div class="panel glass" style="border-top: 4px solid ${esc(s.away_primary)};">
+            <h4 style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+              ${esc(s.away_team_name)}
+              <span class="badge" style="background:var(--primary)">⭐ ${awayStars.toFixed(1)}</span>
+            </h4>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              ${lineupSelectors("away", match?.lineup_away || [], availIds, canEditAway)}
             </div>
           </div>
         </div>
-        ` : ''}
-
-        <label>Fecha<input name="match_date" value="${esc(match?.match_date || "")}" placeholder="Ej: Hoy 19:00" ${isAdmin?'':'readonly'}></label>
-        <label>Cancha<input name="venue" value="${esc(match?.venue || state.settings.venue)}" ${isAdmin?'':'readonly'}></label>
-        <label>Goles Local<input name="score_home" type="number" value="${esc(match?.score_home || 0)}" ${canEdit?'':'readonly'}></label>
-        <label>Goles Rival<input name="score_away" type="number" value="${esc(match?.score_away || 0)}" ${canEdit?'':'readonly'}></label>
         
-        <div class="full" style="background:rgba(255,255,255,0.05); padding:16px; border-radius:12px; border-left:4px solid ${esc(state.settings.home_primary)}">
-          <h3 style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
-            ${esc(state.settings.home_team_name)} (⭐ ${homeStars.toFixed(1)})
-            ${!canEditHome ? '<span class="badge" style="background:var(--danger)">Solo lectura</span>' : ''}
-          </h3>
-          <div class="form-grid">${lineupSelectors("home", match?.lineup_home || [], match?.available_players || [], canEditHome)}</div>
-        </div>
-        
-        <div class="full" style="background:rgba(255,255,255,0.05); padding:16px; border-radius:12px; border-left:4px solid ${esc(state.settings.away_primary)}">
-          <h3 style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
-            ${esc(state.settings.away_team_name)} (⭐ ${awayStars.toFixed(1)})
-            ${!canEditAway ? '<span class="badge" style="background:var(--danger)">Solo lectura</span>' : ''}
-          </h3>
-          <div class="form-grid">${lineupSelectors("away", match?.lineup_away || [], match?.available_players || [], canEditAway)}</div>
-        </div>
+        <form id="matchForm" style="display:none">
+          <input name="title" value="${esc(match?.title || "")}">
+          <input name="match_date" value="${esc(match?.match_date || "")}">
+          <input name="venue" value="${esc(match?.venue || "")}">
+          <input name="score_home" value="${match?.score_home || 0}">
+          <input name="score_away" value="${match?.score_away || 0}">
+          <input name="status" value="${match?.status || 'programado'}">
+        </form>
+      </div>
 
-        ${isUnbalanced ? `
-        <div class="full" style="background:rgba(239, 68, 68, 0.2); border:1px solid rgba(239, 68, 68, 0.5); padding:16px; border-radius:12px; color:#fca5a5; display:flex; align-items:center; gap:12px;">
-          <i class="fa-solid fa-scale-unbalanced" style="font-size:2rem"></i>
-          <div>
-            <strong>¡Equipos Desbalanceados!</strong>
-            <p>Diferencia de estrellas: ${balanceDiff.toFixed(1)} (límite 8.0). Considera ajustar las formaciones.</p>
+      <!-- SIDEBAR: PIZARRA Y OTROS -->
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 32px; position: sticky; top: 20px; min-width: 0;">
+        <article class="panel glass" style="padding: 0; overflow: hidden; border: none;">
+          <div style="padding: 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border);">
+            <h3 style="margin:0;"><i class="fa-solid fa-chess-board"></i> Pizarra Táctica</h3>
           </div>
-        </div>
-        ` : ''}
-        
-        <div class="full row">
-          ${canEdit ? `<button class="btn primary glow-on-hover"><i class="fa-solid fa-floppy-disk"></i> Guardar Partido</button>` : ''}
-          ${isAdmin ? `<button class="btn ghost" type="button" id="clearMatch"><i class="fa-solid fa-plus"></i> Nuevo</button>` : ''}
-        </div>
-        <div id="matchMsg" class="full"></div>
-      </form>
-    </article>
-    <article class="panel glass" style="padding:0; overflow:hidden; border:none; display:flex; flex-direction:column; background:transparent;">
-      <div style="padding:20px; background:var(--bg-panel); border-bottom:1px solid var(--border); border-radius:12px 12px 0 0;">
-        <h2><i class="fa-solid fa-chess-board"></i> Pizarra Táctica</h2>
+          <div style="padding: 20px;">
+            ${match ? renderPitchShell(match) : empty("Selecciona un partido.")}
+          </div>
+        </article>
+
+        <article class="panel glass">
+          <h3>Historial Reciente</h3>
+          <div class="item-list" style="margin-top: 16px; max-height: 400px; overflow-y: auto;">
+            ${state.matches.map(matchItem).join("")}
+          </div>
+        </article>
       </div>
-      <div style="flex:1; padding:20px;">
-        ${match ? renderPitchShell(match) : empty("Selecciona un partido del historial para editarlo.")}
-      </div>
-    </article>
-  </section>
-  <section class="panel glass" style="margin-top:24px"><h2>Historial de Partidos</h2><div class="item-list">${state.matches.map(matchItem).join("")}</div></section>`;
+
+    </div>
+  </div>`;
 }
 function lineupSelectors(side, selected=[], availIds=[], canEdit){
   const list = state.players.filter(p => availIds.includes(p.id));
@@ -803,9 +946,11 @@ function getMatchPayload(){
   
   // Extract avail checkboxes
   const avail = [];
-  for (let key in f) {
-    if (key.startsWith("avail_")) avail.push(Number(f[key]));
-  }
+  $$(".avail-check").forEach(chk => { if(chk.checked) avail.push(Number(chk.value)); });
+
+  // Extract match captains
+  const cHomeId = $(".match-meta-input[name='captain_home_id']")?.value;
+  const cAwayId = $(".match-meta-input[name='captain_away_id']")?.value;
 
   return {
     title:f.title, match_date:f.match_date, venue:f.venue, status:f.status || 'programado',
@@ -813,6 +958,8 @@ function getMatchPayload(){
     lineup_home: slots.map((_,i)=>f["home_"+i] ? +f["home_"+i] : null),
     lineup_away: slots.map((_,i)=>f["away_"+i] ? +f["away_"+i] : null),
     available_players: avail,
+    captain_home_id: cHomeId ? Number(cHomeId) : null,
+    captain_away_id: cAwayId ? Number(cAwayId) : null,
     has_stream: f.has_stream ? 1 : 0,
     stream_url: f.stream_url || "",
     video_url: f.video_url || ""

@@ -556,8 +556,54 @@ def bootstrap():
     if not user: return err, code
     conn = connect()
     settings = conn.execute("SELECT * FROM settings WHERE id=1").fetchone()
-    players = conn.execute("SELECT * FROM players ORDER BY team_side, number, name").fetchall()
-    matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
+    
+    # Filtering logic based on role
+    if user["role"] in ["ADMIN", "CAPTAIN"]:
+        players = conn.execute("SELECT * FROM players ORDER BY team_side, number, name").fetchall()
+        matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
+    else:
+        # PLAYER role: Only see matches they are in and players in those matches
+        p_id = user.get("player_id")
+        matches = []
+        if p_id:
+            # Matches where the user is in the lineup or available list or is a manager
+            all_matches = conn.execute("SELECT * FROM matches ORDER BY id DESC").fetchall()
+            for m in all_matches:
+                lineup_home = parse_json_list(m.get("lineup_home"))
+                lineup_away = parse_json_list(m.get("lineup_away"))
+                avail = parse_json_list(m.get("available_players"))
+                
+                # Check if player is in any list
+                in_match = (p_id in lineup_home or p_id in lineup_away or p_id in avail)
+                
+                # Also check if they are a manager
+                if not in_match:
+                    mgr = conn.execute("SELECT id FROM match_managers WHERE match_id=? AND player_id=?", (m["id"], p_id)).fetchone()
+                    if mgr: in_match = True
+                
+                if in_match:
+                    matches.append(m)
+        
+        # Players: only those involved in the matches the user can see
+        relevant_player_ids = set()
+        for m in matches:
+            relevant_player_ids.update(parse_json_list(m.get("lineup_home")))
+            relevant_player_ids.update(parse_json_list(m.get("lineup_away")))
+            relevant_player_ids.update(parse_json_list(m.get("available_players")))
+        
+        if p_id: relevant_player_ids.add(p_id)
+        relevant_player_ids.discard(None)
+        
+        if relevant_player_ids:
+            placeholders = ','.join(['?'] * len(relevant_player_ids))
+            players = conn.execute(f"SELECT * FROM players WHERE id IN ({placeholders})", list(relevant_player_ids)).fetchall()
+        else:
+            # If no matches, at least show their own profile if it exists
+            if p_id:
+                players = conn.execute("SELECT * FROM players WHERE id=?", (p_id,)).fetchall()
+            else:
+                players = []
+
     videos = conn.execute("SELECT * FROM videos ORDER BY id DESC").fetchall()
     highlights = conn.execute("SELECT * FROM highlights ORDER BY id DESC").fetchall()
     
@@ -565,9 +611,7 @@ def bootstrap():
         m["lineup_home"] = parse_json_list(m.get("lineup_home"))
         m["lineup_away"] = parse_json_list(m.get("lineup_away"))
         m["available_players"] = parse_json_list(m.get("available_players"))
-        # Fetch managers for this match
-        m["managers"] = conn.execute("SELECT player_id FROM match_managers WHERE match_id=?", (m["id"],)).fetchall()
-        m["managers"] = [mgr["player_id"] for mgr in m["managers"]]
+        m["managers"] = [mgr["player_id"] for mgr in conn.execute("SELECT player_id FROM match_managers WHERE match_id=?", (m["id"],)).fetchall()]
         
     conn.close()
     return jsonify({
@@ -582,7 +626,7 @@ def bootstrap():
 
 @app.route("/api/upload-photo", methods=["POST"])
 def upload_photo():
-    user, err, code = require_roles({"ADMIN"})
+    user, err, code = require_roles({"ADMIN", "CAPTAIN"})
     if not user: return err, code
     if "photo" not in request.files:
         return jsonify({"error": "Sube una imagen válida"}), 400
@@ -660,7 +704,17 @@ def get_players():
     user, err, code = require_user()
     if not user: return err, code
     conn = connect()
-    rows = conn.execute("SELECT * FROM players ORDER BY team_side, number, name").fetchall()
+    if user["role"] in ["ADMIN", "CAPTAIN"]:
+        rows = conn.execute("SELECT * FROM players ORDER BY team_side, number, name").fetchall()
+    else:
+        # PLAYER only sees themselves or players in their matches
+        # For simplicity in this endpoint, if they are not admin/captain, we return minimal info
+        # but the bootstrap already provides what they need.
+        p_id = user.get("player_id")
+        if p_id:
+            rows = conn.execute("SELECT * FROM players WHERE id=?", (p_id,)).fetchall()
+        else:
+            rows = []
     conn.close()
     return jsonify(rows)
 
@@ -688,7 +742,7 @@ def create_player():
 
 @app.route("/api/players/<int:player_id>", methods=["PUT"])
 def update_player(player_id):
-    user, err, code = require_roles({"ADMIN"})
+    user, err, code = require_roles({"ADMIN", "CAPTAIN"})
     if not user: return err, code
     p = player_payload()
     p["id"] = player_id
@@ -725,6 +779,8 @@ def match_payload():
         "lineup_home": json.dumps(body.get("lineup_home") or [None]*7),
         "lineup_away": json.dumps(body.get("lineup_away") or [None]*7),
         "available_players": json.dumps(body.get("available_players") or []),
+        "captain_home_id": safe_int(body.get("captain_home_id"), 0) or None,
+        "captain_away_id": safe_int(body.get("captain_away_id"), 0) or None,
         "has_stream": safe_int(body.get("has_stream"), 0),
         "stream_url": (body.get("stream_url") or "").strip(),
         "video_url": (body.get("video_url") or "").strip(),
@@ -751,8 +807,8 @@ def create_match():
     p = match_payload()
     conn = connect()
     cur = conn.cursor()
-    cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away, available_players, has_stream, stream_url, video_url, stream_desc)
-    VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away, :available_players, :has_stream, :stream_url, :video_url, :stream_desc)''', p)
+    cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away, available_players, captain_home_id, captain_away_id, has_stream, stream_url, video_url, stream_desc)
+    VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away, :available_players, :captain_home_id, :captain_away_id, :has_stream, :stream_url, :video_url, :stream_desc)''', p)
     conn.commit()
     row = conn.execute("SELECT * FROM matches WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
@@ -784,6 +840,7 @@ def update_match(match_id):
 
     conn.execute('''UPDATE matches SET title=:title, match_date=:match_date, venue=:venue, score_home=:score_home,
     score_away=:score_away, status=:status, lineup_home=:lineup_home, lineup_away=:lineup_away, available_players=:available_players,
+    captain_home_id=:captain_home_id, captain_away_id=:captain_away_id,
     has_stream=:has_stream, stream_url=:stream_url, video_url=:video_url, stream_desc=:stream_desc WHERE id=:id''', p)
     conn.commit()
     row = conn.execute("SELECT * FROM matches WHERE id=?", (match_id,)).fetchone()
@@ -862,7 +919,7 @@ def delete_highlight(h_id):
 
 @app.route("/api/upload-media", methods=["POST"])
 def upload_media():
-    user, err, code = require_roles({"admin"})
+    user, err, code = require_roles({"ADMIN"})
     if not user: return err, code
     if "media" not in request.files: return jsonify({"error": "No file"}), 400
     file = request.files["media"]
