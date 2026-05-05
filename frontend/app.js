@@ -12,10 +12,10 @@ const nav = [
 ];
 
 const slots = ["ARQ", "DEF I", "DEF D", "MED I", "MED C", "MED D", "DEL"];
-// LOCAL: Half Bottom (50-100), DEL at 52 (near center but in half)
-const homePos = [[50,90], [32,75], [68,75], [25,60], [50,60], [75,60], [50,52]];
-// RIVAL: Half Top (0-50), DEL at 48 (near center but in half)
-const awayPos = [[50,10], [68,25], [32,25], [75,40], [50,40], [25,40], [50,48]];
+// LOCAL: Half Bottom (50-100). ARQ at 90, DEF at 75, MED at 62, MED C further back at 65, DEL at 55
+const homePos = [[50,90], [32,75], [68,75], [25,62], [50,65], [75,62], [50,55]];
+// RIVAL: Half Top (0-50). ARQ at 10, DEF at 25, MED at 38, MED C further back at 35, DEL at 45
+const awayPos = [[50,10], [68,25], [32,25], [75,38], [50,35], [25,38], [50,45]];
 
 let socket;
 let state = {
@@ -554,62 +554,55 @@ function inicio(){
       <div style="display:flex; align-items:center; gap:16px; background:rgba(0,0,0,0.3); padding:12px 24px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">
         <div style="width:24px;height:24px;border-radius:50%;background:${esc(s.home_primary || "#ff1558")}"></div>
         <strong style="font-size:1.2rem">${esc(s.home_team_name || "Equipo Local")}</strong>
-      </div>
-      <span style="font-weight:800; color:var(--muted)">VS</span>
-      <div style="display:flex; align-items:center; gap:16px; background:rgba(0,0,0,0.3); padding:12px 24px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">
-        <div style="width:24px;height:24px;border-radius:50%;background:${esc(s.away_primary || "#2563eb")}"></div>
-        <strong style="font-size:1.2rem">${esc(s.away_team_name || "Equipo Rival")}</strong>
-      </div>
-    </div>
-  </section>
-
-  <section class="grid-4">
-    ${metric("Plantilla", d.players)}
-    ${metric("Partidos", d.matches)}
-    ${metric("Videos", d.videos)}
-    ${metric("Momentos", d.highlights)}
-  </section>
+  const d = state.dashboard;
+  const nextMatch = state.matches.filter(m => m.status === "ABIERTO")[0];
   
-  ${nextMatch ? `
-  <section class="panel glass" style="margin-top:24px; padding:24px;">
-    <div class="row" style="justify-content:space-between; margin-bottom:20px;">
-      <h2 style="margin:0;"><i class="fa-solid fa-calendar-check"></i> Próximo Partido: ${esc(nextMatch.title)}</h2>
-      <button class="btn primary small" onclick="state.editMatch=${nextMatch.id}; state.section='partido'; render();">Ver Partido Completo</button>
-    </div>
-    
-    <div class="two-cols" style="gap:24px; align-items:stretch;">
-      <div class="panel" style="background:rgba(0,0,0,0.2); padding:20px; flex:1; display:flex; flex-direction:column; justify-content:center; text-align:center;">
-        <p class="eyebrow" style="margin-bottom:12px;">Estado de Convocatoria</p>
-        <b style="font-size:2.5rem; display:block;">${nextMatch.available_players?.length || 0}</b>
-        <p class="muted">Jugadores Confirmados</p>
-        <div class="row" style="justify-content:center; margin-top:20px; gap:8px;">
-           ${(nextMatch.available_players || []).slice(0,5).map(id => {
-             const p = player(id);
-             return `<img src="${esc(p?.photo_path || '')}" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p?.name||'J')}&size=32'" style="width:32px; height:32px; border-radius:50%; border:2px solid var(--border);">`;
-           }).join('')}
-           ${nextMatch.available_players?.length > 5 ? `<span class="badge">+${nextMatch.available_players.length - 5}</span>` : ''}
-        </div>
+  return `
+  <section class="two-cols" style="gap:24px;">
+    <article class="panel glass" style="flex:1;">
+      <h2 style="font-size:2rem; margin-bottom:8px;">Bienvenido, ${esc(state.user.name)}</h2>
+      <p class="muted">Hoy es un buen día para jugar. Aquí tienes el resumen de tu actividad.</p>
+      
+      <div class="grid-2" style="margin-top:24px;">
+        ${metric("Jugadores", d.players)}
+        ${metric("Partidos", d.matches)}
+        ${metric("Media Goles", (d.avgGoals || 0).toFixed(1))}
+        ${metric("Momentos", d.highlights)}
+      </div>
+    </article>
+
+    ${nextMatch ? `
+    <article class="panel glass" style="flex:1.5; display:flex; flex-direction:column; gap:20px;">
+      <div class="row" style="justify-content:space-between;">
+        <p class="eyebrow"><i class="fa-solid fa-calendar-check"></i> Próximo Partido</p>
+        <button class="btn primary small" onclick="state.editMatch=${nextMatch.id}; state.section='partido'; render();">Gestionar</button>
       </div>
       
-      <div style="flex:1.2; min-width:0;">
-        <div class="pitch-container mini" style="max-height:300px;">
+      <div class="row" style="gap:20px; align-items:center;">
+        <div style="flex:1;">
+          <h3 style="font-size:1.6rem; margin-bottom:4px;">${esc(nextMatch.title)}</h3>
+          <p class="muted"><i class="fa-regular fa-clock"></i> ${esc(nextMatch.match_date || "Sin fecha")}</p>
+          <div class="row" style="margin-top:16px; gap:8px;">
+             ${(nextMatch.available_players || []).slice(0,6).map(id => poster(player(id), 'sm')).join('')}
+             ${nextMatch.available_players?.length > 6 ? `<span class="badge">+${nextMatch.available_players.length - 6}</span>` : ''}
+          </div>
+        </div>
+        <div class="pitch-container mini" style="max-height:200px; flex:1;">
           ${renderPitchShell(nextMatch, true)}
         </div>
       </div>
-    </div>
+    </article>
+    ` : `
+    <article class="panel glass" style="flex:1.5;">
+      ${empty("No hay partidos abiertos programados.")}
+    </article>
+    `}
   </section>
-  ` : empty("No hay partidos programados.")}
   `;
 }
 function metric(label,value){return `<article class="panel metric glass"><span>${esc(label)}</span><b>${esc(value)}</b></article>`}
 function empty(t){return `<p class="muted" style="text-align:center; padding:20px; font-style:italic;">${esc(t)}</p>`}
 
-function poster(p){
-  const img = p.photo_path || p.photo_url || p.poster_path;
-  if(img) return `<div class="poster"><img src="${esc(img)}" alt="${esc(p.name)}" onerror="this.parentElement.innerHTML='<div class=\'poster placeholder\'><strong>${esc((p.nickname||p.name||'J')[0].toUpperCase())}</strong></div>'"></div>`;
-  const initial = (p.nickname || p.name || "J").trim()[0] || "J";
-  return `<div class="poster placeholder"><strong>${esc(initial.toUpperCase())}</strong></div>`;
-}
 function playerCard(p) {
   const isAdmin = state.user.role === "ADMIN";
   const isCap = state.user.role === "CAPTAIN";
@@ -620,29 +613,24 @@ function playerCard(p) {
   if (p.is_guest) { typeTag = "Invitado"; tagColor = "rgba(245, 158, 11, 0.2)"; }
   if (p.is_nn) { typeTag = "NN"; tagColor = "rgba(161, 161, 170, 0.2)"; }
 
-  const photoUrl = p.photo_path || p.photo_url || p.poster_path;
-
   return `
   <div class="player-card">
     <div class="player-card-header">
-      <div class="player-card-img-wrap">
-        <img src="${esc(photoUrl || '')}" class="player-card-img" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p.name)}&background=random&color=fff'">
-      </div>
+      ${poster(p, 'md')}
       <div class="player-card-info">
         <h4 class="player-card-name" title="${esc(p.name)}">${esc(p.name)}</h4>
         <span class="player-card-code">${esc(p.player_code || '---')}</span>
       </div>
     </div>
     
-    <div style="font-size: 0.8rem; color: var(--muted); margin: 4px 0; display:flex; align-items:center; gap:6px;">
+    <div style="font-size: 0.8rem; color: var(--muted); margin: 8px 0; display:flex; align-items:center; gap:6px;">
       <i class="fa-solid fa-person-running" style="color:var(--primary)"></i> ${esc(p.position || 'Sin posición')} · #${p.number || '0'}
     </div>
 
     <div class="player-card-stats">
       <div><span>PJ</span><b>${p.matches_played || 0}</b></div>
       <div><span>Goles</span><b>${p.goals || 0}</b></div>
-      <div><span>Asist</span><b>${p.assists || 0}</b></div>
-      <div><span>⭐</span><b>${(p.rating || 5.0).toFixed(1)}</b></div>
+      <div><span style="color:#fbbf24">⭐</span><b>${(p.rating || 5.0).toFixed(1)}</b></div>
     </div>
 
     <div class="player-card-footer">
@@ -712,21 +700,31 @@ function jugadores(){
 
             <!-- MANUAL FIELDS (INVITADO / NN) -->
             <div id="manualFields" class="form ${activeType==='registrado'?'hidden':''}">
-              <label>Nombre Completo<input name="name" id="playerNameInput" ${activeType==='nn'?'disabled':''} placeholder="${activeType==='nn'?'Se generará automáticamente':'Ej: Ricardo M'}"></label>
-              
-              <div class="form-grid ${activeType==='nn'?'hidden':''}">
-                <label>Teléfono<input name="phone" placeholder="+57..."></label>
-                <label>Número<input name="number" type="number" min="0" max="99" value="0"></label>
+              <div class="form-grid">
+                <div class="full">
+                  <label>Nombre Completo</label>
+                  <input name="name" id="playerNameInput" value="${esc(state.editPlayer?.name || '')}" placeholder="${activeType==='nn'?'Se generará automáticamente':'Ej: Juan Pérez'}" ${activeType==='nn'?'disabled':''}>
+                </div>
+                <div>
+                  <label>Teléfono</label>
+                  <input name="phone" value="${esc(state.editPlayer?.phone || '')}" placeholder="Ej: 3001234567">
+                </div>
+                <div>
+                  <label>Número Camiseta</label>
+                  <input type="number" name="number" value="${state.editPlayer?.number || '0'}" placeholder="Ej: 10">
+                </div>
+                <div>
+                  <label>Posición</label>
+                  <select name="position">
+                    <option value="">Cualquiera</option>
+                    ${slots.map(s => `<option value="${s}" ${state.editPlayer?.position===s?'selected':''}>${s}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                   <label>Calificación (1-10)</label>
+                   <input type="number" name="rating" min="1" max="10" step="0.1" value="${state.editPlayer?.rating || '5.0'}">
+                </div>
               </div>
-
-              <label class="${activeType==='nn'?'hidden':''}">Posición Preferida
-                <select name="position">
-                  <option value="">Cualquiera</option>
-                  ${slots.map(s => `<option value="${s}">${s}</option>`).join("")}
-                </select>
-              </label>
-              
-              <label class="${activeType==='nn'?'hidden':''}">Calificación (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10"></label>
 
               <div class="${activeType==='nn'?'hidden':''}">
                 <label>Foto (Opcional)</label>
@@ -735,14 +733,14 @@ function jugadores(){
                     <i class="fa-solid fa-camera"></i> Subir Foto
                     <input id="playerPhoto" type="file" accept="image/*" hidden>
                   </label>
-                  <input name="photo_path" type="hidden">
+                  <input name="photo_path" type="hidden" value="${esc(state.editPlayer?.photo_path || '')}">
                 </div>
               </div>
 
               <div id="statsFields" class="form-grid" style="background:rgba(0,0,0,0.2); padding:16px; border-radius:16px; border:1px solid var(--border);">
-                <label>PJ<input name="matches_played" type="number" value="0"></label>
-                <label>Goles<input name="goals" type="number" value="0"></label>
-                <label>Asist.<input name="assists" type="number" value="0"></label>
+                <div><label>PJ</label><input name="matches_played" type="number" value="${state.editPlayer?.matches_played || 0}"></div>
+                <div><label>Goles</label><input name="goals" type="number" value="${state.editPlayer?.goals || 0}"></div>
+                <div><label>Asist.</label><input name="assists" type="number" value="${state.editPlayer?.assists || 0}"></div>
               </div>
             </div>
 
@@ -1066,19 +1064,17 @@ function partido(){
             ${state.players.map(p => {
               const isChecked = availIds.includes(p.id);
               return `
-                <label class="avail-item ${isChecked ? 'active' : ''}" style="position:relative;">
+                <label class="avail-item ${isChecked ? 'active' : ''}" style="flex-direction:row; align-items:center; gap:12px;">
                   <input type="checkbox" value="${p.id}" class="avail-check" ${isChecked ? 'checked' : ''} style="display:none">
-                  <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
-                    <div style="display:flex; align-items:center; gap:8px; width:100%; justify-content:space-between; margin-bottom:4px;">
-                       <span style="font-family:monospace; opacity:0.6; font-size:0.7rem;">${esc(p.player_code || '---')}</span>
-                       ${isChecked ? '<i class="fa-solid fa-circle-check" style="color:var(--primary); font-size:0.9rem;"></i>' : '<i class="fa-regular fa-circle" style="opacity:0.3; font-size:0.9rem;"></i>'}
-                    </div>
-                    <strong style="font-size:0.95rem; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%;">${esc(p.name)}</strong>
-                    <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-top:4px;">
-                       <span style="font-size:0.75rem; color:var(--muted)">⭐ ${p.rating || '5.0'}</span>
-                       ${isChecked ? '<span class="badge primary" style="font-size:0.6rem; padding:2px 6px;">CONVOCADO</span>' : ''}
+                  ${poster(p, 'sm')}
+                  <div style="flex:1; min-width:0;">
+                    <strong style="font-size:0.9rem; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(p.name)}</strong>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+                       <span style="font-size:0.7rem; color:var(--muted)">⭐ ${p.rating?.toFixed(1) || '5.0'}</span>
+                       <span style="font-size:0.6rem; opacity:0.5;">${esc(p.player_code || '---')}</span>
                     </div>
                   </div>
+                  ${isChecked ? '<i class="fa-solid fa-circle-check" style="color:var(--primary); font-size:1rem;"></i>' : '<i class="fa-regular fa-circle" style="opacity:0.2; font-size:1rem;"></i>'}
                 </label>
               `;
             }).join('')}
@@ -1184,10 +1180,10 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit, match){
     const photoUrl = p ? (p.photo_path || p.poster_path) : null;
     const photoHtml = photoUrl ? `<img src="${esc(photoUrl)}" style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid var(--primary); flex-shrink:0;">` : `<div style="width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:center; border:1px dashed var(--border); flex-shrink:0;"><i class="fa-solid fa-user" style="opacity:0.5"></i></div>`;
     
-    return `<label style="display:flex; flex-direction:row; align-items:center; gap:12px; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:12px; margin-bottom:0;">
-      ${photoHtml}
-      <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
-        <span style="font-size:0.8rem; font-weight:700; color:var(--muted)">${label}</span>
+    return `<div class="lineup-selector-row">
+      ${poster(p || {name: label}, 'sm')}
+      <div class="lineup-selector-info">
+        <span class="lineup-selector-label">${label}</span>
         <select name="${side}_${i}" class="lineup-select" data-match-id="${match.id}" ${canEdit?'':'disabled'} onchange="saveLineupChange(this)" style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
           <option value="">Sin asignar</option>
           ${extraOpt}
@@ -1446,27 +1442,26 @@ function pitch(m, side, isMini=false){
     const p = player(pId);
     
     if(p) {
-      const photoUrl = p.photo_path || p.photo_url || p.poster_path;
-      const bgStyle = photoUrl ? `background-image:url('${esc(photoUrl)}'); border-color:${t.p};` : `background:var(--bg-panel-solid); border-color:${t.p}; color:var(--text);`;
       const isMatchCaptain = Number(m.captain_home_id) === Number(p.id) || Number(m.captain_away_id) === Number(p.id);
       const shortName = (p.nickname || p.name.split(" ")[0]).substring(0, 10);
       
-      return `<div class="player-dot ${isMini?'small':''}" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle}" onclick="showPlayerDetailModalById(${p.id})">
-        ${photoUrl ? '' : esc(p.number || '')}
+      return `<div class="player-dot ${isMini?'small':''}" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle(p, t.p)}" onclick="showPlayerDetailModalById(${p.id})">
+        ${(p.photo_path || p.photo_url) ? '' : esc(p.number || '')}
         <div class="player-label" style="background: ${isMatchCaptain ? '#fbbf24' : t.p}; color: ${isMatchCaptain ? '#000' : contrast(t.p)}; display:${isMini?'none':'flex'}">
            <span style="font-size:0.6rem; opacity:0.8; font-weight:800;">${slotName}</span>
            <span>${esc(shortName)}</span>
         </div>
-        ${isMatchCaptain ? `
-        <div class="captain-badge" style="display:${isMini?'none':'flex'}">
-           <i class="fa-solid fa-crown"></i>
-        </div>
-        ` : ''}
+        ${isMatchCaptain ? `<div class="captain-badge" style="display:${isMini?'none':'flex'}"><i class="fa-solid fa-crown"></i></div>` : ''}
       </div>`;
     } else {
       return `<div class="player-dot empty ${isMini?'small':''}" style="left:${xy[0]}%;top:${xy[1]}%;"><i class="fa-solid fa-plus"></i></div>`;
     }
   }).join("");
+}
+function bgStyle(p, border){
+  const img = p.photo_path || p.photo_url || p.poster_path;
+  if(img) return `background-image:url('${esc(img)}'); border-color:${border};`;
+  return `background:var(--bg-panel-solid); border-color:${border}; color:var(--text);`;
 }
 
 function contenido(){
