@@ -36,9 +36,14 @@ def is_match_manager(conn, user_id, match_id):
     
     user_full = conn.execute("SELECT player_id FROM users WHERE id=?", (user_id,)).fetchone()
     if user_full and user_full["player_id"]:
-        mgr = conn.execute("SELECT id FROM match_managers WHERE match_id=? AND player_id=?", 
-                          (match_id, user_full["player_id"])).fetchone()
-        return mgr is not None
+        pid = user_full["player_id"]
+        # Check managers table
+        mgr = conn.execute("SELECT id FROM match_managers WHERE match_id=? AND player_id=?", (match_id, pid)).fetchone()
+        if mgr: return True
+        # Check match captains
+        match = conn.execute("SELECT captain_home_id, captain_away_id FROM matches WHERE id=?", (match_id,)).fetchone()
+        if match and (match["captain_home_id"] == pid or match["captain_away_id"] == pid):
+            return True
     return False
 
 def safe_int(v, default=0):

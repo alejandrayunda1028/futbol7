@@ -903,8 +903,8 @@ function partido(){
   const homeStars = (match?.lineup_home || []).reduce((acc,id)=>acc+(player(id)?.rating||0),0);
   const awayStars = (match?.lineup_away || []).reduce((acc,id)=>acc+(player(id)?.rating||0),0);
   
-  const canEditHome = isAdmin || (isCap && state.user.id === s.captain_home_id) || isManager || (match?.captain_home_id === state.user.player_id);
-  const canEditAway = isAdmin || (isCap && state.user.id === s.captain_away_id) || isManager || (match?.captain_away_id === state.user.player_id);
+  const canEditHome = isAdmin || isCap || isManager || (match?.captain_home_id === state.user.player_id);
+  const canEditAway = isAdmin || isCap || isManager || (match?.captain_away_id === state.user.player_id);
 
   // Correct captain selection: must be from convocation
   const convocationList = state.players.filter(p => availIds.includes(p.id));
@@ -1075,9 +1075,11 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit){
           <option value="">Sin asignar</option>
           ${extraOpt}
           ${list.map(pl => {
+            const isOpposingCaptain = (side === 'home' && Number(match.captain_away_id) === pl.id) || (side === 'away' && Number(match.captain_home_id) === pl.id);
             const isPickedByOther = allSelectedIds.includes(Number(pl.id)) && Number(selVal) !== Number(pl.id);
-            return `<option value="${pl.id}" ${Number(selVal)===Number(pl.id)?"selected":""} ${isPickedByOther ? 'disabled' : ''}>
-              ${esc(pl.player_code || '')} — #${pl.number} ${esc(pl.nickname || pl.name)} (⭐${pl.rating}) ${isPickedByOther ? '— Ocupado' : ''}
+            
+            return `<option value="${pl.id}" ${Number(selVal)===Number(pl.id)?"selected":""} ${isOpposingCaptain || isPickedByOther ? 'disabled' : ''}>
+              ${esc(pl.player_code || '')} — #${pl.number} ${esc(pl.nickname || pl.name)} (⭐${pl.rating}) ${isOpposingCaptain ? '— Capitán Rival' : (isPickedByOther ? '— Ocupado' : '')}
             </option>`;
           }).join("")}
         </select>
@@ -1517,7 +1519,43 @@ window.saveCaptainChange = async (el) => {
     return;
   }
   
-  await saveSpecificMatchData(match.id, { captain_home_id: cHomeId, captain_away_id: cAwayId });
-}
+  const payload = { captain_home_id: cHomeId, captain_away_id: cAwayId };
+  
+  // Logic: Ensure captains are in their respective teams and NOT in the opposing team
+  const lineupHome = [...match.lineup_home];
+  const lineupAway = [...match.lineup_away];
+  let changedLineup = false;
+
+  // Home Captain
+  if (cHomeId) {
+    // 1. Remove from away if present
+    const idxInAway = lineupAway.indexOf(cHomeId);
+    if (idxInAway > -1) { lineupAway[idxInAway] = null; changedLineup = true; }
+    // 2. Add to home if not present
+    if (!lineupHome.includes(cHomeId)) {
+      const emptyIdx = lineupHome.indexOf(null);
+      if (emptyIdx > -1) { lineupHome[emptyIdx] = cHomeId; changedLineup = true; }
+    }
+  }
+
+  // Away Captain
+  if (cAwayId) {
+    // 1. Remove from home if present
+    const idxInHome = lineupHome.indexOf(cAwayId);
+    if (idxInHome > -1) { lineupHome[idxInHome] = null; changedLineup = true; }
+    // 2. Add to away if not present
+    if (!lineupAway.includes(cAwayId)) {
+      const emptyIdx = lineupAway.indexOf(null);
+      if (emptyIdx > -1) { lineupAway[emptyIdx] = cAwayId; changedLineup = true; }
+    }
+  }
+
+  if (changedLineup) {
+    payload.lineup_home = lineupHome;
+    payload.lineup_away = lineupAway;
+  }
+  
+  await saveSpecificMatchData(match.id, payload);
+};
 
 load();
