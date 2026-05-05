@@ -270,6 +270,9 @@ function shell(){
 }
 function render(){
   shell();
+  const main = $("#content");
+  if (!main) return;
+  
   const views = {inicio, perfil, jugadores, partido, contenido, ajustes, usuarios};
   const viewFunc = views[state.section];
   
@@ -279,8 +282,6 @@ function render(){
       socket.emit("join_match", { match_id: state.editMatch });
     }
   } else {
-    // If we have a previously joined match room, leave it
-    // Note: this is simple logic, could be refined by storing current room
     if (socket && socket.connected && state._lastMatchRoom) {
       socket.emit("leave_match", { match_id: state._lastMatchRoom });
       state._lastMatchRoom = null;
@@ -289,9 +290,9 @@ function render(){
   if (state.section === "partido") state._lastMatchRoom = state.editMatch;
 
   if (viewFunc) {
-    $("#content").innerHTML = viewFunc();
+    main.innerHTML = viewFunc();
   } else {
-    $("#content").innerHTML = empty("Sección no encontrada.");
+    main.innerHTML = empty("Sección no encontrada.");
   }
   $("#pageTitle").textContent = nav.find(n=>n[0]===state.section)?.[1] || "";
   
@@ -532,42 +533,20 @@ function perfil() {
 }
 
 function inicio(){
-  const s = state.settings || {}, d = state.dashboard || {};
-  const nextMatch = state.matches.find(m => m.status !== 'jugado') || state.matches[0];
-
-  return `
-  <section class="panel glass" style="position:relative; overflow:hidden;">
-    <div style="position:absolute; right:-50px; top:-50px; opacity:0.1; font-size:15rem;"><i class="fa-solid fa-futbol"></i></div>
-    <p class="eyebrow">Panel principal</p>
-    <h2 style="font-size:2.5rem; margin-bottom: 8px;">${esc(s.next_match_title || "Próximo Partido")}</h2>
-    <p class="muted" style="font-size:1.1rem;"><i class="fa-solid fa-location-dot"></i> ${esc(s.venue || "Cancha principal")} &nbsp;|&nbsp; <i class="fa-regular fa-calendar"></i> ${esc(s.schedule || "Pendiente")}</p>
-    
-    ${nextMatch && nextMatch.has_stream && nextMatch.stream_url ? `
-      <div style="margin-top:16px;">
-        <a href="${esc(nextMatch.stream_url)}" target="_blank" class="btn primary glow-on-hover" style="display:inline-flex; align-items:center; gap:8px;">
-          <i class="fa-solid fa-video"></i> Ver transmisión en vivo
-        </a>
-      </div>
-    ` : ''}
-    
-    <div class="row" style="margin-top:24px;">
-      <div style="display:flex; align-items:center; gap:16px; background:rgba(0,0,0,0.3); padding:12px 24px; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">
-        <div style="width:24px;height:24px;border-radius:50%;background:${esc(s.home_primary || "#ff1558")}"></div>
-        <strong style="font-size:1.2rem">${esc(s.home_team_name || "Equipo Local")}</strong>
-  const d = state.dashboard;
-  const nextMatch = state.matches.filter(m => m.status === "ABIERTO")[0];
+  const d = state.dashboard || {};
+  const nextMatch = (state.matches || []).filter(m => m.status === "ABIERTO")[0];
   
   return `
   <section class="two-cols" style="gap:24px;">
     <article class="panel glass" style="flex:1;">
-      <h2 style="font-size:2rem; margin-bottom:8px;">Bienvenido, ${esc(state.user.name)}</h2>
+      <h2 style="font-size:2rem; margin-bottom:8px;">Bienvenido, ${esc(state.user?.name || 'Usuario')}</h2>
       <p class="muted">Hoy es un buen día para jugar. Aquí tienes el resumen de tu actividad.</p>
       
       <div class="grid-2" style="margin-top:24px;">
-        ${metric("Jugadores", d.players)}
-        ${metric("Partidos", d.matches)}
+        ${metric("Jugadores", d.players || 0)}
+        ${metric("Partidos", d.matches || 0)}
         ${metric("Media Goles", (d.avgGoals || 0).toFixed(1))}
-        ${metric("Momentos", d.highlights)}
+        ${metric("Momentos", d.highlights || 0)}
       </div>
     </article>
 

@@ -19,18 +19,18 @@
     <i class="fa-solid fa-wifi"></i> <span>Desconectado</span>
   </div>
 
-  <section id="login" class="login-screen">
+  <section id="login" class="auth-container">
     <div class="login-bg-glow"></div>
-    <article class="login-card glass">
+    <article class="auth-card glass">
       <div class="brand-logo"><i class="fa-solid fa-futbol"></i></div>
       <p class="eyebrow">FUTBOL 7 · PRO STUDIO</p>
       <h1>Colaboración en Tiempo Real</h1>
       <p class="muted">Gestión avanzada y profesional de jugadores, formaciones y estadísticas en un solo lugar.</p>
       <div id="loginBox">
-        <form id="loginForm" class="form" style="margin-top: 24px;">
+        <form id="loginForm" class="form" method="POST" style="margin-top: 24px;">
           <label><i class="fa-solid fa-user"></i><input name="username" value="admin" required placeholder="Usuario"></label>
           <label><i class="fa-solid fa-lock"></i><input name="password" type="password" value="admin123" required placeholder="Contraseña"></label>
-          <button class="btn primary glow-on-hover">Ingresar al Studio</button>
+          <button type="submit" class="btn primary glow-on-hover" style="width:100%">Ingresar al Studio</button>
           <p id="loginMsg" class="error"></p>
         </form>
         <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
@@ -40,13 +40,13 @@
       </div>
 
       <div id="registerBox" class="hidden">
-        <form id="registerForm" class="form" style="margin-top: 24px;">
+        <form id="registerForm" class="form" method="POST" style="margin-top: 24px;">
           <label><i class="fa-solid fa-id-card"></i><input name="display_name" required placeholder="Nombre Completo"></label>
           <label><i class="fa-solid fa-user"></i><input name="username" required placeholder="Usuario (Email o Alias)"></label>
           <label><i class="fa-solid fa-phone"></i><input name="phone" placeholder="Teléfono (Opcional)"></label>
           <label><i class="fa-solid fa-lock"></i><input name="password" type="password" required placeholder="Contraseña"></label>
           <label><i class="fa-solid fa-lock"></i><input name="confirm_password" type="password" required placeholder="Confirmar Contraseña"></label>
-          <button class="btn primary glow-on-hover">Registrarse</button>
+          <button type="submit" class="btn primary glow-on-hover" style="width:100%">Registrarse</button>
           <p id="registerMsg" class="error"></p>
         </form>
         <button class="btn ghost" onclick="toggleAuth(false)" style="width:100%; margin-top:12px;">Volver al Login</button>
