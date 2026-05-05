@@ -501,6 +501,17 @@ def update_profile():
                   body.get("bio", ""), 
                   safe_int(body.get("player_id"), 0) or None,
                   user["id"]))
+    
+    # Sync with players table if player_id exists
+    p_id = body.get("player_id") or user.get("player_id")
+    if p_id:
+        conn.execute('''UPDATE players SET name=?, phone=?, position=?, number=? WHERE id=?''',
+                     (body.get("display_name", user.get("display_name")),
+                      body.get("phone", ""),
+                      body.get("preferred_position", ""),
+                      safe_int(body.get("shirt_number"), 0) or 0,
+                      p_id))
+        
     conn.commit()
     updated_user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
     conn.close()
@@ -532,6 +543,11 @@ def update_profile_photo():
     url = f"/uploads/{filename}"
     conn = connect()
     conn.execute("UPDATE users SET avatar=? WHERE id=?", (url, user["id"]))
+    
+    # Sync with players table
+    if user.get("player_id"):
+        conn.execute("UPDATE players SET photo_path=? WHERE id=?", (url, user["player_id"]))
+        
     conn.commit()
     updated_user = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
     conn.close()
@@ -753,6 +769,17 @@ def add_to_roster(player_id):
     socketio.emit("data_changed", {"type": "players"})
     return jsonify(row)
 
+@app.route("/api/players/<int:player_id>/roster", methods=["DELETE"])
+def remove_from_roster(player_id):
+    user, err, code = require_roles({"ADMIN", "CAPTAIN"})
+    if not user: return err, code
+    conn = connect()
+    conn.execute("UPDATE players SET in_roster=0 WHERE id=?", (player_id,))
+    conn.commit()
+    conn.close()
+    socketio.emit("data_changed", {"type": "players"})
+    return jsonify({"ok": True})
+
 @app.route("/api/players/<int:player_id>", methods=["PUT"])
 def update_player(player_id):
     user, err, code = require_roles({"ADMIN", "CAPTAIN"})
@@ -762,7 +789,10 @@ def update_player(player_id):
     conn = connect()
     old = conn.execute("SELECT * FROM players WHERE id=?", (player_id,)).fetchone()
     if old and not p["poster_path"]: p["poster_path"] = old.get("poster_path", "")
-    if old and not p["photo_path"]: p["photo_path"] = old.get("photo_path", "")
+    # Security: Only ADMIN/CAPTAIN can modify rating
+    if user["role"] not in ["ADMIN", "CAPTAIN"]:
+        p["rating"] = old["rating"] if old else 5.0
+
     conn.execute('''UPDATE players SET is_registered=:is_registered, is_guest=:is_guest, is_nn=:is_nn, team_side=:team_side, name=:name, nickname=:nickname, email=:email, phone=:phone, number=:number,
     position=:position, photo_path=:photo_path, poster_path=:poster_path, goals=:goals, assists=:assists,
     matches_played=:matches_played, rating=:rating, updated_at=CURRENT_TIMESTAMP WHERE id=:id''', p)
@@ -924,9 +954,6 @@ def delete_highlight(h_id):
     user, err, code = require_roles({"ADMIN"})
     if not user: return err, code
     conn = connect(); conn.execute("DELETE FROM highlights WHERE id=?", (h_id,)); conn.commit(); conn.close()
-    socketio.emit("data_changed", {"type": "highlights"})
-    return jsonify({"ok": True})
-    conn = connect(); conn.execute("DELETE FROM highlights WHERE id=?", (highlight_id,)); conn.commit(); conn.close()
     socketio.emit("data_changed", {"type": "highlights"})
     return jsonify({"ok": True})
 

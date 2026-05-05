@@ -267,9 +267,19 @@ function bind(){
 
   $("#playerForm")?.addEventListener("submit", savePlayer);
   $("#playerPhoto")?.addEventListener("change", uploadPhoto);
-  $("#clearPlayer")?.addEventListener("click", ()=>{state.editPlayer=null;render();});
-  $$("[data-edit-player]").forEach(b=>b.onclick=()=>{state.editPlayer=Number(b.dataset.editPlayer);state.section="jugadores";render();});
-  $$("[data-del-player]").forEach(b=>b.onclick=async ()=>{if(confirm("¿Eliminar jugador?")) {await api("/api/players/"+b.dataset.delPlayer,{method:"DELETE"}); load();}});
+  $("#cancelPlayerBtn")?.addEventListener("click", ()=>{state.editPlayer=null;state._lastEditType=null;render();});
+  $("#clearPlayer")?.addEventListener("click", ()=>{state.editPlayer=null;state._lastEditType=null;render();});
+  $$("[data-edit-player]").forEach(b=>b.onclick=()=>{editPlayer(Number(b.dataset.editPlayer));});
+  $$("[data-roster-remove]").forEach(b=>b.onclick=async ()=>{
+    const pid = b.dataset.rosterRemove;
+    const p = player(pid);
+    if(confirm(`¿Quitar a ${p?.name || 'este jugador'} de tu Plantilla General? Esto no eliminará su cuenta ni su perfil registrado.`)) {
+      await api("/api/players/"+pid+"/roster",{method:"DELETE"});
+      await load();
+      render();
+    }
+  });
+  $$("[data-del-player]").forEach(b=>b.onclick=async ()=>{if(confirm("¿Eliminar jugador permanentemente de la base de datos?")) {await api("/api/players/"+b.dataset.delPlayer,{method:"DELETE"}); load();}});
 
   $("#searchPlayers")?.addEventListener("input", (e) => {
     state.searchPlayers = e.target.value;
@@ -294,16 +304,22 @@ function bind(){
     $("#playerTypeInput").value = type;
     
     $("#regField").classList.toggle("hidden", type !== 'registrado');
-    $("#manualFields").classList.toggle("hidden", type === 'registrado' || type === 'nn');
+    $("#manualFields").classList.toggle("hidden", type === 'registrado');
     $("#nnMsg").classList.toggle("hidden", type !== 'nn');
     
     if(type === 'nn') {
       const nextNN = state.players.filter(p => p.is_nn).length + 1;
       $("#playerNameInput").value = `NN ${nextNN}`;
       $("#playerNameInput").required = false;
+      $("#statsFields").classList.add("hidden");
     } else {
       $("#playerNameInput").required = true;
-      if(type === 'registrado') $("#playerNameInput").value = "";
+      if(type === 'registrado') {
+        $("#playerNameInput").value = "";
+        $("#statsFields").classList.add("hidden");
+      } else {
+        $("#statsFields").classList.remove("hidden");
+      }
     }
   });
 
@@ -547,8 +563,9 @@ function playerCard(p) {
     <div class="player-card-footer">
       <span class="player-card-tag">${typeTag}</span>
       <div class="row" style="gap:8px">
-        ${canEdit ? `<button class="btn ghost icon-btn small" onclick="editPlayer(${p.id})"><i class="fa-solid fa-pen"></i></button>` : ''}
-        ${isAdmin ? `<button class="btn danger-ghost icon-btn small" onclick="del('players', ${p.id}, 'jugadores')"><i class="fa-solid fa-trash"></i></button>` : ''}
+        ${canEdit ? `<button class="btn ghost icon-btn small" onclick="editPlayer(${p.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>` : ''}
+        ${canEdit ? `<button class="btn ghost icon-btn small danger-hover" data-roster-remove="${p.id}" title="Quitar de Plantilla"><i class="fa-solid fa-user-minus"></i></button>` : ''}
+        ${isAdmin ? `<button class="btn ghost icon-btn small danger-hover" data-del-player="${p.id}" title="Eliminar de BD"><i class="fa-solid fa-trash"></i></button>` : ''}
       </div>
     </div>
   </div>`;
@@ -580,9 +597,9 @@ function jugadores(){
         <h2 style="margin-bottom: 20px;">${state.editPlayer ? "Editar jugador" : "Registrar jugador"}</h2>
         
         <div style="display:flex; gap:10px; margin-bottom:24px; background:rgba(0,0,0,0.2); padding:6px; border-radius:12px; border: 1px solid var(--border);">
-          <button class="btn ghost ptype-btn active" data-type="registrado" style="flex:1">Registrado</button>
-          <button class="btn ghost ptype-btn" data-type="invitado" style="flex:1">Invitado</button>
-          <button class="btn ghost ptype-btn" data-type="nn" style="flex:1">NN</button>
+          <button class="btn ghost ptype-btn ${(!state._lastEditType || state._lastEditType==='registrado')?'active':''}" data-type="registrado" style="flex:1">Registrado</button>
+          <button class="btn ghost ptype-btn ${state._lastEditType==='invitado'?'active':''}" data-type="invitado" style="flex:1">Invitado</button>
+          <button class="btn ghost ptype-btn ${state._lastEditType==='nn'?'active':''}" data-type="nn" style="flex:1">NN</button>
         </div>
 
         <form id="playerForm" class="form-grid">
@@ -607,7 +624,7 @@ function jugadores(){
                 ${slots.map(s => `<option value="${s}">${s}</option>`).join("")}
               </select>
             </label>
-            <label class="full">Calificación (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10"></label>
+            <label class="full">Calificación (1-10)<input name="rating" type="number" step=".1" value="5.0" min="1" max="10" ${isAdmin || isCap ? '' : 'disabled'} title="${isAdmin || isCap ? 'Solo admin/capitán pueden editar calificación' : ''}"></label>
           </div>
 
           <div id="nnMsg" class="full hidden" style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:12px; color:var(--muted); border: 1px solid var(--border);">
@@ -635,7 +652,7 @@ function jugadores(){
           
           <div class="full row" style="margin-top:20px; gap: 12px;">
             <button class="btn primary glow-on-hover" style="flex:2" id="playerSubmitBtn"><i class="fa-solid fa-floppy-disk"></i> ${state.editPlayer ? "Guardar Cambios" : "Crear Jugador"}</button>
-            <button type="button" class="btn ghost" id="clearPlayer" style="flex:1">Cancelar</button>
+            <button type="button" class="btn ghost" id="cancelPlayerBtn" style="flex:1">Cancelar</button>
           </div>
           <div id="playerMsg" class="full" style="font-size:0.8rem; min-height:24px;"></div>
         </form>
@@ -832,9 +849,32 @@ async function savePlayer(e){
 function fillPlayer(p){
   if(!p) return;
   const f = $("#playerForm");
+  if(!f) return;
+  
   Object.keys(p).forEach(k=>{ if(f[k]) f[k].value = p[k] ?? ""; });
+  
+  // Set the tab
+  let type = 'registrado';
+  if(p.is_guest) type = 'invitado';
+  else if(p.is_nn) type = 'nn';
+  
+  state._lastEditType = type; // for render sync
+  $("#playerTypeInput").value = type;
+  
+  // Hide/Show manual fields according to type
+  $("#regField")?.classList.toggle("hidden", type !== 'registrado');
+  $("#manualFields")?.classList.toggle("hidden", type === 'registrado');
+  $("#statsFields")?.classList.toggle("hidden", type === 'registrado' || type === 'nn');
+  
   $("#preview").innerHTML = poster(p);
 }
+
+window.editPlayer = (id) => {
+  state.editPlayer = Number(id);
+  state.section = "jugadores";
+  render();
+  fillPlayer(player(id));
+};
 
 function partido(){
   const s = state.settings;
@@ -861,6 +901,9 @@ function partido(){
   
   const canEditHome = isAdmin || (isCap && state.user.id === s.captain_home_id) || isManager || (match?.captain_home_id === state.user.player_id);
   const canEditAway = isAdmin || (isCap && state.user.id === s.captain_away_id) || isManager || (match?.captain_away_id === state.user.player_id);
+
+  // Correct captain selection: must be from convocation
+  const convocationList = state.players.filter(p => availIds.includes(p.id));
 
   return `
   <div style="display: flex; flex-direction: column; gap: 32px;">
@@ -930,13 +973,13 @@ function partido(){
             <label>Capitán Local (Arma Equipo A)
               <select name="captain_home_id" class="match-meta-input" ${canEdit?'':'disabled'}>
                 <option value="">-- Seleccionar convocado --</option>
-                ${state.players.filter(p => availIds.includes(p.id)).map(p => `<option value="${p.id}" ${match?.captain_home_id===p.id?'selected':''}>${esc(p.name)} (${esc(p.player_code)})</option>`).join('')}
+                ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_home_id===p.id?'selected':''}>#${p.number} ${esc(p.name)}</option>`).join('')}
               </select>
             </label>
             <label>Capitán Rival (Arma Equipo B)
               <select name="captain_away_id" class="match-meta-input" ${canEdit?'':'disabled'}>
                 <option value="">-- Seleccionar convocado --</option>
-                ${state.players.filter(p => availIds.includes(p.id)).map(p => `<option value="${p.id}" ${match?.captain_away_id===p.id?'selected':''}>${esc(p.name)} (${esc(p.player_code)})</option>`).join('')}
+                ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_away_id===p.id?'selected':''}>#${p.number} ${esc(p.name)}</option>`).join('')}
               </select>
             </label>
           </div>
@@ -1147,7 +1190,7 @@ function videoCard(v){
 
 function ajustes(){
   const s = state.settings;
-  const isAdmin = state.user.role === "admin";
+  const isAdmin = state.user.role === "ADMIN";
   
   const capOpts = [
     {id: 2, name: "Capitán Local (capitan1)"},
@@ -1208,7 +1251,9 @@ function ajustes(){
         <label>En Vivo (Estado)<select name="live_enabled" ${isAdmin?'':'disabled'}><option value="0">Apagado</option><option value="1" ${Number(s.live_enabled)?"selected":""}>Activo</option></select></label>
         <label>Google Client ID<input name="google_client_id" value="${esc(s.google_client_id || "")}" placeholder="123-abc.apps.googleusercontent.com" ${isAdmin?'':'readonly'}></label>
         
-        <div class="full" style="margin-top:16px;"><button class="btn primary glow-on-hover"><i class="fa-solid fa-save"></i> Guardar Ajustes</button></div>
+        <div class="full" style="margin-top:16px;">
+          ${isAdmin ? '<button class="btn primary glow-on-hover"><i class="fa-solid fa-save"></i> Guardar Ajustes</button>' : '<p class="muted">Solo el administrador puede modificar la configuración global.</p>'}
+        </div>
         <div id="settingsMsg" class="full"></div>
       </form>
     </article>
@@ -1418,8 +1463,12 @@ async function saveMatchConvocatoria() {
     });
     const idx = state.matches.findIndex(m => m.id === res.id);
     if(idx > -1) state.matches[idx] = res;
-    render();
+    
     toast("Convocatoria actualizada");
+    // Don't call render() here because we are in the middle of a click sequence, 
+    // and we want to keep the UI responsive. The load() will update everything.
+    await load(false);
+    render();
   } catch (err) {
     toast("Error al guardar convocatoria", true);
   }
