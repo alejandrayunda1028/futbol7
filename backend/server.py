@@ -601,10 +601,14 @@ def bootstrap():
                 # Check if player is in any list
                 in_match = (p_id in lineup_home or p_id in lineup_away or p_id in avail)
                 
-                # Also check if they are a manager
+                # Also check if they are a manager or captain
                 if not in_match:
                     mgr = conn.execute("SELECT id FROM match_managers WHERE match_id=? AND player_id=?", (m["id"], p_id)).fetchone()
                     if mgr: in_match = True
+                
+                if not in_match:
+                    if m.get("captain_home_id") == p_id or m.get("captain_away_id") == p_id:
+                        in_match = True
                 
                 if in_match:
                     m["lineup_home"] = lineup_home
@@ -878,11 +882,38 @@ def update_match(match_id):
     if not user: return err, code
     
     conn = connect()
-    if not is_match_manager(conn, user["id"], match_id):
+    can_edit = False
+    if is_match_manager(conn, user["id"], match_id):
+        can_edit = True
+    
+    if not can_edit:
         conn.close()
         return jsonify({"error": "No tienes permiso para editar este partido"}), 403
         
     p = match_payload(); p["id"] = match_id
+    
+    # Side-specific permissions for Match Captains (non-global CAPTAIN/ADMIN)
+    if user["role"] not in ["ADMIN", "CAPTAIN"]:
+        # User is a PLAYER role, but is_match_manager was true, so they must be a manager or match captain.
+        # Get player_id of current user
+        p_row = conn.execute("SELECT player_id FROM users WHERE id=?", (user["id"],)).fetchone()
+        pid = p_row["player_id"] if p_row else None
+        
+        match_row = conn.execute("SELECT captain_home_id, captain_away_id, lineup_home, lineup_away, available_players FROM matches WHERE id=?", (match_id,)).fetchone()
+        
+        is_home_cap = match_row["captain_home_id"] == pid
+        is_away_cap = match_row["captain_away_id"] == pid
+        
+        # If they are only a captain of one side, enforce restrictions
+        if is_home_cap and not is_away_cap:
+            # Can only edit home lineup and match details (title/date/etc), NOT away lineup
+            p["lineup_away"] = match_row["lineup_away"]
+        elif is_away_cap and not is_home_cap:
+            # Can only edit away lineup, NOT home lineup
+            p["lineup_home"] = match_row["lineup_home"]
+        
+        # Match captains cannot edit available_players (convocation)
+        p["available_players"] = match_row["available_players"]
     
     # Validation
     if p["captain_home_id"] and p["captain_away_id"] and p["captain_home_id"] == p["captain_away_id"]:
@@ -907,7 +938,9 @@ def update_match(match_id):
     conn.close()
     row["lineup_home"] = parse_json_list(row["lineup_home"]); row["lineup_away"] = parse_json_list(row["lineup_away"])
     row["available_players"] = parse_json_list(row.get("available_players"))
-    socketio.emit("match_updated", row)
+    socketio.emit("match_updated", row, to=f"match_{match_id}")
+    # Also emit to global for dashboard updates if needed, or just keep it room-based
+    socketio.emit("match_updated_global", {"id": match_id})
     return jsonify(row)
 
 @app.route("/api/matches/<int:match_id>", methods=["DELETE"])
@@ -1048,6 +1081,18 @@ def handle_connect():
 @socketio.on("disconnect")
 def handle_disconnect():
     print("User disconnected")
+
+@socketio.on("join_match")
+def on_join_match(data):
+    match_id = data.get("match_id")
+    if match_id:
+        join_room(f"match_{match_id}")
+
+@socketio.on("leave_match")
+def on_leave_match(data):
+    match_id = data.get("match_id")
+    if match_id:
+        leave_room(f"match_{match_id}")
 
 if __name__ == "__main__":
     init_db()

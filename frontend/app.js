@@ -12,8 +12,8 @@ const nav = [
 ];
 
 const slots = ["ARQ", "DEF I", "DEF C", "DEF D", "MED I", "MED D", "DEL"];
-const homePos = [[50,90],[20,70],[50,70],[80,70],[35,45],[65,45],[50,20]];
-const awayPos = [[50,10],[80,30],[50,30],[20,30],[65,55],[35,55],[50,80]];
+const homePos = [[50,90], [25,75], [50,75], [75,75], [30,50], [70,50], [50,25]];
+const awayPos = [[50,10], [75,25], [50,25], [25,25], [70,50], [30,50], [50,75]];
 
 let socket;
 let state = {
@@ -71,6 +71,11 @@ function initSocket() {
     $("#connectionStatus").classList.remove("hidden");
     $("#connectionStatus").classList.add("connected");
     $("#connectionStatus").innerHTML = `<i class="fa-solid fa-wifi"></i> <span>En línea</span>`;
+    
+    // Re-join match room if in partido section
+    if (state.section === "partido" && state.editMatch) {
+      socket.emit("join_match", { match_id: state.editMatch });
+    }
   });
   
   socket.on("disconnect", () => {
@@ -82,8 +87,21 @@ function initSocket() {
     const idx = state.matches.findIndex(x => x.id === m.id);
     if(idx > -1) state.matches[idx] = m;
     else state.matches.unshift(m);
-    if(state.section === "partido" || state.section === "inicio") render();
-    toast("⚽ Formación actualizada en tiempo real");
+    
+    if(state.section === "partido" && state.editMatch === m.id) {
+      render();
+      toast("⚡ Alineación actualizada en tiempo real");
+    } else if (state.section === "inicio") {
+      render();
+    }
+  });
+
+  socket.on("match_updated_global", (data) => {
+    // Just a hint that something changed, might need to refresh data if it's the current match
+    if (state.section === "partido" && state.editMatch === data.id) {
+       // Optional: load(false) to get fresh state if needed, 
+       // but match_updated already sends the full object.
+    }
   });
 
   socket.on("settings_updated", (s) => {
@@ -252,6 +270,22 @@ function render(){
   shell();
   const views = {inicio, perfil, jugadores, partido, contenido, ajustes, usuarios};
   const viewFunc = views[state.section];
+  
+  // Handle socket rooms when switching to/from partido
+  if (state.section === "partido" && state.editMatch) {
+    if (socket && socket.connected) {
+      socket.emit("join_match", { match_id: state.editMatch });
+    }
+  } else {
+    // If we have a previously joined match room, leave it
+    // Note: this is simple logic, could be refined by storing current room
+    if (socket && socket.connected && state._lastMatchRoom) {
+      socket.emit("leave_match", { match_id: state._lastMatchRoom });
+      state._lastMatchRoom = null;
+    }
+  }
+  if (state.section === "partido") state._lastMatchRoom = state.editMatch;
+
   if (viewFunc) {
     $("#content").innerHTML = viewFunc();
   } else {
@@ -912,8 +946,15 @@ function partido(){
 
   const isAdmin = state.user.role === "ADMIN";
   const isCap = state.user.role === "CAPTAIN";
-  const isManager = match && (match.managers || []).includes(state.user.player_id);
-  const canEdit = isAdmin || isCap || isManager;
+  const pId = state.user.player_id;
+  const isHomeCap = match?.captain_home_id === pId;
+  const isAwayCap = match?.captain_away_id === pId;
+  const isManager = match && (match.managers || []).includes(pId);
+  
+  // match captains should be able to see convocations and pick players
+  const canSeeConvocados = isAdmin || isCap || isManager || isHomeCap || isAwayCap;
+  const canEditConvocatoria = isAdmin || isCap || isManager; // Only global caps can add/remove from avail_players
+  const canEdit = canEditConvocatoria;
 
   const availIds = match?.available_players || [];
   const homeStars = (match?.lineup_home || []).reduce((acc,id)=>acc+(player(id)?.rating||0),0);
@@ -960,7 +1001,7 @@ function partido(){
             <span class="badge primary" style="font-size:1rem; padding:6px 12px;">${availIds.length} seleccionados</span>
           </div>
           
-          ${canEdit ? `
+          ${canEditConvocatoria ? `
           <p class="muted" style="margin-bottom:16px">Selecciona quiénes van a jugar hoy desde la plantilla. Solo ellos podrán ser asignados a equipos.</p>
           <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:10px; max-height:300px; overflow-y:auto; padding:10px; background:rgba(0,0,0,0.2); border-radius:12px; border:1px solid var(--border);">
             ${state.players.map(p => {
@@ -1343,6 +1384,9 @@ function pitch(lineup, coords, side){
         <div class="player-label" style="background:${t.p}; color:${contrast(t.p)}">
            <span style="font-size:0.6rem; opacity:0.8; display:block;">${slots[i]}</span>
            ${esc(p.nickname || p.name.split(" ")[0])}
+        </div>
+        <div style="position:absolute; top:-10px; right:-10px; display:${match?.captain_home_id===p.id || match?.captain_away_id===p.id ? 'block' : 'none'}">
+           <i class="fa-solid fa-crown" style="color:#fbbf24; font-size:1rem; filter:drop-shadow(0 0 2px rgba(0,0,0,0.5))"></i>
         </div>
       </div>`;
     } else {
