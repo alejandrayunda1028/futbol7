@@ -12,8 +12,10 @@ const nav = [
 ];
 
 const slots = ["ARQ", "DEF I", "DEF D", "MED I", "MED C", "MED D", "DEL"];
-const homePos = [[50,88], [30,70], [70,70], [20,52], [50,52], [80,52], [50,32]];
-const awayPos = [[50,12], [70,30], [30,30], [80,48], [50,48], [20,48], [50,68]];
+// LOCAL: Half Bottom (50-100), DEL at 52 (near center but in half)
+const homePos = [[50,90], [32,75], [68,75], [25,60], [50,60], [75,60], [50,52]];
+// RIVAL: Half Top (0-50), DEL at 48 (near center but in half)
+const awayPos = [[50,10], [68,25], [32,25], [75,40], [50,40], [25,40], [50,48]];
 
 let socket;
 let state = {
@@ -568,14 +570,35 @@ function inicio(){
     ${metric("Momentos", d.highlights)}
   </section>
   
-  ${nextMatch && (nextMatch.lineup_home.some(x=>x) || nextMatch.lineup_away.some(x=>x)) ? `
-  <section class="panel glass" style="margin-top:24px; padding:0; overflow:hidden;">
-    <div style="padding:20px; border-bottom:1px solid var(--border);">
-      <h2><i class="fa-solid fa-chess-board"></i> Equipos Armados: ${esc(nextMatch.title)}</h2>
+  ${nextMatch ? `
+  <section class="panel glass" style="margin-top:24px; padding:24px;">
+    <div class="row" style="justify-content:space-between; margin-bottom:20px;">
+      <h2 style="margin:0;"><i class="fa-solid fa-calendar-check"></i> Próximo Partido: ${esc(nextMatch.title)}</h2>
+      <button class="btn primary small" onclick="state.editMatch=${nextMatch.id}; state.section='partido'; render();">Ver Partido Completo</button>
     </div>
-    <div style="padding:20px;">${renderPitchShell(nextMatch)}</div>
+    
+    <div class="two-cols" style="gap:24px; align-items:stretch;">
+      <div class="panel" style="background:rgba(0,0,0,0.2); padding:20px; flex:1; display:flex; flex-direction:column; justify-content:center; text-align:center;">
+        <p class="eyebrow" style="margin-bottom:12px;">Estado de Convocatoria</p>
+        <b style="font-size:2.5rem; display:block;">${nextMatch.available_players?.length || 0}</b>
+        <p class="muted">Jugadores Confirmados</p>
+        <div class="row" style="justify-content:center; margin-top:20px; gap:8px;">
+           ${(nextMatch.available_players || []).slice(0,5).map(id => {
+             const p = player(id);
+             return `<img src="${esc(p?.photo_path || '')}" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p?.name||'J')}&size=32'" style="width:32px; height:32px; border-radius:50%; border:2px solid var(--border);">`;
+           }).join('')}
+           ${nextMatch.available_players?.length > 5 ? `<span class="badge">+${nextMatch.available_players.length - 5}</span>` : ''}
+        </div>
+      </div>
+      
+      <div style="flex:1.2; min-width:0;">
+        <div class="pitch-container mini" style="max-height:300px;">
+          ${renderPitchShell(nextMatch, true)}
+        </div>
+      </div>
+    </div>
   </section>
-  ` : ''}
+  ` : empty("No hay partidos programados.")}
   `;
 }
 function metric(label,value){return `<article class="panel metric glass"><span>${esc(label)}</span><b>${esc(value)}</b></article>`}
@@ -676,12 +699,15 @@ function jugadores(){
             <!-- REGISTRADO SEARCH -->
             <div id="regField" class="${activeType==='registrado'?'':'hidden'}" style="background:rgba(99, 102, 241, 0.05); padding:20px; border-radius:16px; border: 1px dashed var(--primary); margin-bottom:20px;">
               <label>Código JUG-XXXX
-                <div class="row" style="margin-top: 10px; gap:8px;">
-                  <input id="searchCodeInput" placeholder="Ej: JUG-0001" style="flex:1; background:rgba(0,0,0,0.3)">
-                  <button type="button" class="btn primary" id="searchCodeBtn" style="padding:12px 20px;"><i class="fa-solid fa-magnifying-glass"></i></button>
+                <div class="search-wrapper" style="margin-top: 10px;">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <div class="row" style="gap:8px;">
+                    <input id="searchCodeInput" placeholder="Ej: JUG-0001" style="flex:1; background:rgba(0,0,0,0.3)">
+                    <button type="button" class="btn primary" id="searchCodeBtn" style="padding:12px 20px;">Buscar</button>
+                  </div>
                 </div>
               </label>
-              <p class="muted" style="font-size:0.75rem; margin-top:12px;">Busca un jugador que ya haya sido registrado previamente en el sistema global.</p>
+              <p class="muted" style="font-size:0.75rem; margin-top:12px;">Busca un jugador que ya haya sido registrado previamente.</p>
             </div>
 
             <!-- MANUAL FIELDS (INVITADO / NN) -->
@@ -751,16 +777,16 @@ function jugadores(){
               <h2 style="margin:0; font-size: 2.2rem;">Plantilla General</h2>
               <p class="muted" style="margin-top:4px;">Gestiona a todos los jugadores convocables.</p>
             </div>
-            <div style="display:flex; gap:12px; flex-wrap:wrap; flex:1; justify-content:flex-end;">
+            <div style="display:flex; gap:12px; flex-wrap:wrap; flex:1; justify-content:flex-end; align-items:center;">
               <select id="typeFilter" onchange="state.playerTypeFilter=this.value; render();" style="width:auto; max-width:160px; background:rgba(255,255,255,0.05);">
                 <option value="todos" ${typeFilter==='todos'?'selected':''}>Todos</option>
                 <option value="registrado" ${typeFilter==='registrado'?'selected':''}>Registrados</option>
                 <option value="invitado" ${typeFilter==='invitado'?'selected':''}>Invitados</option>
                 <option value="nn" ${typeFilter==='nn'?'selected':''}>NN</option>
               </select>
-              <div style="min-width:240px; position:relative; flex:1; max-width:300px;">
-                <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:var(--muted)"></i>
-                <input id="searchPlayers" placeholder="Buscar por nombre..." value="${esc(state.searchPlayers || '')}" style="background:rgba(255,255,255,0.05); padding-left:44px;">
+              <div class="search-wrapper" style="max-width:300px;">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="searchPlayers" placeholder="Buscar por nombre o código..." value="${esc(state.searchPlayers || '')}" style="background:rgba(255,255,255,0.05);">
               </div>
             </div>
           </div>
@@ -1396,15 +1422,20 @@ function matchItem(m){
     <div class="row"><button class="btn ghost icon-btn" data-edit-match="${m.id}"><i class="fa-solid fa-pen"></i></button><button class="btn danger-ghost icon-btn" data-del-match="${m.id}"><i class="fa-solid fa-trash"></i></button></div>
   </div>`;
 }
-function renderPitchShell(m){
+function renderPitchShell(m, isMini=false){
   if (!m) return empty("Información de partido no disponible.");
-  return `<div class="pitch-container">
-    <div class="pitch-lines"></div>
-    <div class="pitch-side">${pitch(m, "home")}</div>
-    <div class="pitch-side">${pitch(m, "away")}</div>
+  return `<div class="pitch-container ${isMini?'mini':''}">
+    <div class="pitch-lines">
+      <div class="goal goal-top"></div>
+      <div class="goal goal-bottom"></div>
+      <div class="penalty-area top"></div>
+      <div class="penalty-area bottom"></div>
+    </div>
+    <div class="pitch-side">${pitch(m, "home", isMini)}</div>
+    <div class="pitch-side">${pitch(m, "away", isMini)}</div>
   </div>`;
 }
-function pitch(m, side){
+function pitch(m, side, isMini=false){
   const lineup = side === "home" ? (m.lineup_home || []) : (m.lineup_away || []);
   const coords = side === "home" ? homePos : awayPos;
   const t = team(side);
@@ -1418,23 +1449,22 @@ function pitch(m, side){
       const photoUrl = p.photo_path || p.photo_url || p.poster_path;
       const bgStyle = photoUrl ? `background-image:url('${esc(photoUrl)}'); border-color:${t.p};` : `background:var(--bg-panel-solid); border-color:${t.p}; color:var(--text);`;
       const isMatchCaptain = Number(m.captain_home_id) === Number(p.id) || Number(m.captain_away_id) === Number(p.id);
-      
       const shortName = (p.nickname || p.name.split(" ")[0]).substring(0, 10);
       
-      return `<div class="player-dot" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle}" onclick="showPlayerDetailModalById(${p.id})">
+      return `<div class="player-dot ${isMini?'small':''}" style="left:${xy[0]}%;top:${xy[1]}%; ${bgStyle}" onclick="showPlayerDetailModalById(${p.id})">
         ${photoUrl ? '' : esc(p.number || '')}
-        <div class="player-label" style="background: ${isMatchCaptain ? '#fbbf24' : t.p}; color: ${isMatchCaptain ? '#000' : contrast(t.p)}">
+        <div class="player-label" style="background: ${isMatchCaptain ? '#fbbf24' : t.p}; color: ${isMatchCaptain ? '#000' : contrast(t.p)}; display:${isMini?'none':'flex'}">
            <span style="font-size:0.6rem; opacity:0.8; font-weight:800;">${slotName}</span>
            <span>${esc(shortName)}</span>
         </div>
         ${isMatchCaptain ? `
-        <div style="position:absolute; top:-12px; right:-12px; z-index:10; background:#fbbf24; color:#000; width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
-           <i class="fa-solid fa-crown" style="font-size:0.7rem"></i>
+        <div class="captain-badge" style="display:${isMini?'none':'flex'}">
+           <i class="fa-solid fa-crown"></i>
         </div>
         ` : ''}
       </div>`;
     } else {
-      return `<div class="player-dot empty" style="left:${xy[0]}%;top:${xy[1]}%;"><i class="fa-solid fa-plus"></i></div>`;
+      return `<div class="player-dot empty ${isMini?'small':''}" style="left:${xy[0]}%;top:${xy[1]}%;"><i class="fa-solid fa-plus"></i></div>`;
     }
   }).join("");
 }
