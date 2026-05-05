@@ -973,13 +973,13 @@ function partido(){
             <label>Capitán Local (Arma Equipo A)
               <select name="captain_home_id" class="match-meta-input" ${canEdit?'':'disabled'}>
                 <option value="">-- Seleccionar convocado --</option>
-                ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_home_id===p.id?'selected':''}>#${p.number} ${esc(p.name)}</option>`).join('')}
+                ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_home_id===p.id?'selected':''}>${esc(p.player_code || '---')} - ${esc(p.name)}</option>`).join('')}
               </select>
             </label>
             <label>Capitán Rival (Arma Equipo B)
               <select name="captain_away_id" class="match-meta-input" ${canEdit?'':'disabled'}>
                 <option value="">-- Seleccionar convocado --</option>
-                ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_away_id===p.id?'selected':''}>#${p.number} ${esc(p.name)}</option>`).join('')}
+                ${convocationList.map(p => `<option value="${p.id}" ${match?.captain_away_id===p.id?'selected':''}>${esc(p.player_code || '---')} - ${esc(p.name)}</option>`).join('')}
               </select>
             </label>
           </div>
@@ -1100,11 +1100,33 @@ function getMatchPayload(){
 }
 async function saveMatch(e){
   e.preventDefault();
+  const msg = $("#matchMsg");
   try{
     const payload = getMatchPayload();
+    
+    // Validations
+    if (payload.captain_home_id && payload.captain_away_id && payload.captain_home_id === payload.captain_away_id) {
+      throw new Error("No puedes seleccionar el mismo jugador como Capitán Local y Capitán Rival.");
+    }
+    
+    if (payload.available_players.length < 2 && (payload.captain_home_id || payload.captain_away_id)) {
+      // If they are trying to set captains but don't have enough players
+      // This is more of a warning, but let's be strict if they are selecting someone
+      if (payload.captain_home_id && payload.captain_away_id) {
+         // This case is already covered by length < 2, but just in case
+      }
+    }
+
     if(state.editMatch) await api("/api/matches/"+state.editMatch,{method:"PUT",body:JSON.stringify(payload)});
     else await api("/api/matches",{method:"POST",body:JSON.stringify(payload)});
-  }catch(err){ $("#matchMsg").innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`; }
+    
+    toast("Configuración del partido guardada");
+    msg.innerHTML = "";
+  }catch(err){ 
+    msg.innerHTML = `<div style="background:rgba(255,0,0,0.1); border:1px solid var(--danger); color:var(--danger); padding:12px; border-radius:8px; margin-top:12px;">
+      <i class="fa-solid fa-circle-exclamation"></i> ${esc(err.message)}
+    </div>`; 
+  }
 }
 function fillMatch(m){}
 function matchItem(m){
@@ -1191,12 +1213,7 @@ function videoCard(v){
 function ajustes(){
   const s = state.settings;
   const isAdmin = state.user.role === "ADMIN";
-  
-  const capOpts = [
-    {id: 2, name: "Capitán Local (capitan1)"},
-    {id: 3, name: "Capitán Rival (capitan2)"},
-    {id: 4, name: "Espectador (usuario)"}
-  ];
+  if (!isAdmin) return empty("Solo el administrador tiene acceso a la configuración global del sistema.");
 
   return `<section class="two-cols">
     <article class="panel glass">
@@ -1228,31 +1245,11 @@ function ajustes(){
         <label>Cancha<input name="venue" value="${esc(s.venue)}"></label>
         <label>Horario<input name="schedule" value="${esc(s.schedule)}"></label>
         
-        <div class="full" style="border-top:1px solid var(--border); padding-top:20px; margin-top:10px;">
-          <h3 style="margin-bottom:16px"><i class="fa-solid fa-crown" style="color:gold"></i> Asignación de Capitanes</h3>
-          <div class="form-grid">
-            <label>Capitán Local (Edita Pizarra Local)
-              <select name="captain_home_id" ${isAdmin?'':'disabled'}>
-                <option value="0">Nadie</option>
-                ${capOpts.map(c=>`<option value="${c.id}" ${s.captain_home_id===c.id?'selected':''}>${c.name}</option>`).join("")}
-              </select>
-            </label>
-            <label>Capitán Rival (Edita Pizarra Rival)
-              <select name="captain_away_id" ${isAdmin?'':'disabled'}>
-                <option value="0">Nadie</option>
-                ${capOpts.map(c=>`<option value="${c.id}" ${s.captain_away_id===c.id?'selected':''}>${c.name}</option>`).join("")}
-              </select>
-            </label>
-          </div>
-          ${!isAdmin ? '<p class="muted" style="margin-top:8px">Solo el Administrador puede asignar capitanes.</p>':''}
-        </div>
-
-        <label class="full">URL del En Vivo<input name="live_url" value="${esc(s.live_url || "")}" ${isAdmin?'':'readonly'}></label>
+        <label class="full">URL del En Vivo (Global)<input name="live_url" value="${esc(s.live_url || "")}" ${isAdmin?'':'readonly'}></label>
         <label>En Vivo (Estado)<select name="live_enabled" ${isAdmin?'':'disabled'}><option value="0">Apagado</option><option value="1" ${Number(s.live_enabled)?"selected":""}>Activo</option></select></label>
-        <label>Google Client ID<input name="google_client_id" value="${esc(s.google_client_id || "")}" placeholder="123-abc.apps.googleusercontent.com" ${isAdmin?'':'readonly'}></label>
         
-        <div class="full" style="margin-top:16px;">
-          ${isAdmin ? '<button class="btn primary glow-on-hover"><i class="fa-solid fa-save"></i> Guardar Ajustes</button>' : '<p class="muted">Solo el administrador puede modificar la configuración global.</p>'}
+        <div class="full" style="margin-top:24px; border-top: 1px solid var(--border); padding-top: 24px;">
+          ${isAdmin ? '<button class="btn primary glow-on-hover" style="width:100%"><i class="fa-solid fa-save"></i> Guardar Ajustes Globales</button>' : '<p class="muted"><i class="fa-solid fa-lock"></i> Solo el administrador puede modificar la configuración global.</p>'}
         </div>
         <div id="settingsMsg" class="full"></div>
       </form>

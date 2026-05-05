@@ -872,6 +872,11 @@ def update_match(match_id):
         
     p = match_payload(); p["id"] = match_id
     
+    # Validation
+    if p["captain_home_id"] and p["captain_away_id"] and p["captain_home_id"] == p["captain_away_id"]:
+        conn.close()
+        return jsonify({"error": "No puedes seleccionar el mismo jugador como Capitán Local y Capitán Rival"}), 400
+    
     # Security: only ADMIN can modify video/stream fields
     if user["role"] != "ADMIN":
         old = conn.execute("SELECT has_stream, stream_url, video_url, stream_desc FROM matches WHERE id=?", (match_id,)).fetchone()
