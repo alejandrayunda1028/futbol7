@@ -1,6 +1,10 @@
 const $ = (s, r=document) => r.querySelector(s);
 const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 
+if (window.location.search) {
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
 const nav = [
   ["inicio", "Inicio", "fa-house"],
   ["perfil", "Mi Perfil", "fa-user"],
@@ -633,7 +637,9 @@ function inicio(){
   `;
 }
 function metric(label,value){return `<article class="panel metric glass"><span>${esc(label)}</span><b>${esc(value)}</b></article>`}
-function empty(t){return `<p class="muted" style="text-align:center; padding:20px; font-function poster(p, sizeClass = ''){
+function empty(t){return `<p class="muted" style="text-align:center; padding:20px; font-style:italic;">${esc(t)}</p>`}
+
+function poster(p, sizeClass = ''){
   const img = p.photo_path || p.photo_url || p.poster_path;
   const sClass = sizeClass ? ` ${sizeClass}` : '';
   const initial = (p.is_nn ? 'NN' : (p.nickname || p.name || "J").trim()[0] || "J").toUpperCase();
