@@ -12,10 +12,10 @@ const nav = [
 ];
 
 const slots = ["ARQ", "DEF I", "DEF D", "MED I", "MED C", "MED D", "DEL"];
-// LOCAL: Half Bottom (50-100). ARQ at 94, DEF at 82, MED at 66, MED C at 74, DEL at 58
-const homePos = [[50,94], [32,82], [68,82], [22,66], [50,74], [78,66], [50,58]];
-// RIVAL: Half Top (0-50). ARQ at 6, DEF at 18, MED at 34, MED C at 26, DEL at 42
-const awayPos = [[50,6], [68,18], [32,18], [78,34], [50,26], [22,34], [50,42]];
+// LOCAL: Half Bottom (50-100). ARQ at 95, DEF at 85, MED at 68, MED C at 78, DEL at 60
+const homePos = [[50,95], [30,85], [70,85], [15,68], [50,78], [85,68], [50,60]];
+// RIVAL: Half Top (0-50). ARQ at 5, DEF at 15, MED at 32, MED C at 22, DEL at 40
+const awayPos = [[50,5], [70,15], [30,15], [85,32], [50,22], [15,32], [50,40]];
 
 let socket;
 let state = {
@@ -613,9 +613,18 @@ function inicio(){
         </div>
       </div>
       
-      <div style="flex:1.2; min-width:0;">
-        <div class="pitch-container mini" style="max-height:300px;">
-          ${renderPitchShell(nextMatch, true)}
+      <div style="flex:1.2; min-width:0; background:rgba(0,0,0,0.2); padding:24px; border-radius:12px; border:1px solid rgba(255,255,255,0.05); display:flex; flex-direction:column; justify-content:center;">
+        <h3 style="margin:0 0 20px 0; font-size:1.1rem; text-align:center; color:var(--muted);"><i class="fa-solid fa-crown"></i> Capitanes Asignados</h3>
+        <div class="row" style="justify-content:space-evenly; align-items:center;">
+          <div style="text-align:center;">
+             ${poster(player(nextMatch.captain_home_id) || {}, 'md')}
+             <p style="margin:12px 0 0; font-weight:700; font-size:1rem;">${esc(player(nextMatch.captain_home_id)?.name || 'Local')}</p>
+          </div>
+          <span style="font-size:1.5rem; font-weight:800; color:var(--muted); opacity:0.3;">VS</span>
+          <div style="text-align:center;">
+             ${poster(player(nextMatch.captain_away_id) || {}, 'md')}
+             <p style="margin:12px 0 0; font-weight:700; font-size:1rem;">${esc(player(nextMatch.captain_away_id)?.name || 'Rival')}</p>
+          </div>
         </div>
       </div>
     </div>
@@ -624,56 +633,56 @@ function inicio(){
   `;
 }
 function metric(label,value){return `<article class="panel metric glass"><span>${esc(label)}</span><b>${esc(value)}</b></article>`}
-function empty(t){return `<p class="muted" style="text-align:center; padding:20px; font-style:italic;">${esc(t)}</p>`}
-
-function poster(p){
+function empty(t){return `<p class="muted" style="text-align:center; padding:20px; font-function poster(p, sizeClass = ''){
   const img = p.photo_path || p.photo_url || p.poster_path;
-  if(img) return `<div class="poster"><img src="${esc(img)}" alt="${esc(p.name)}" onerror="this.parentElement.innerHTML='<div class=\'poster placeholder\'><strong>${esc((p.nickname||p.name||'J')[0].toUpperCase())}</strong></div>'"></div>`;
-  const initial = (p.nickname || p.name || "J").trim()[0] || "J";
-  return `<div class="poster placeholder"><strong>${esc(initial.toUpperCase())}</strong></div>`;
+  const sClass = sizeClass ? ` ${sizeClass}` : '';
+  const initial = (p.is_nn ? 'NN' : (p.nickname || p.name || "J").trim()[0] || "J").toUpperCase();
+  if(img) return `<div class="poster-container poster${sClass}"><img src="${esc(img)}" alt="${esc(p.name)}" onerror="this.parentElement.innerHTML='<strong>${esc(initial)}</strong>'; this.parentElement.classList.add('placeholder');"></div>`;
+  return `<div class="poster-container poster${sClass} placeholder"><strong>${esc(initial)}</strong></div>`;
 }
+
 function playerCard(p) {
   const isAdmin = state.user.role === "ADMIN";
   const isCap = state.user.role === "CAPTAIN";
   const canEdit = isAdmin || isCap;
   
   let typeTag = "Registrado";
-  let tagColor = "rgba(99, 102, 241, 0.2)";
-  if (p.is_guest) { typeTag = "Invitado"; tagColor = "rgba(245, 158, 11, 0.2)"; }
-  if (p.is_nn) { typeTag = "NN"; tagColor = "rgba(161, 161, 170, 0.2)"; }
-
-  const photoUrl = p.photo_path || p.photo_url || p.poster_path;
+  let tagColor = "var(--primary)";
+  if (p.is_guest) { typeTag = "Invitado"; tagColor = "var(--warning)"; }
+  if (p.is_nn) { typeTag = "NN"; tagColor = "var(--muted)"; }
 
   return `
-  <div class="player-card">
-    <div class="player-card-header">
-      <div class="player-card-img-wrap">
-        <img src="${esc(photoUrl || '')}" class="player-card-img" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p.name)}&background=random&color=fff'">
-      </div>
-      <div class="player-card-info">
-        <h4 class="player-card-name" title="${esc(p.name)}">${esc(p.name)}</h4>
-        <span class="player-card-code">${esc(p.player_code || '---')}</span>
+  <div class="player-card" style="display:flex; flex-direction:column; gap:16px;">
+    <div class="row" style="gap:16px; align-items:center;">
+      ${poster(p, 'md')}
+      <div style="flex:1; min-width:0;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+          <h4 style="margin:0; font-size:1.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${esc(p.name)}">${esc(p.name)}</h4>
+          <span class="badge" style="background:${tagColor}20; color:${tagColor}; font-size:0.7rem; border:1px solid ${tagColor}40;">${typeTag}</span>
+        </div>
+        <div style="font-family:monospace; font-size:0.8rem; color:var(--primary); margin:4px 0;">${esc(p.player_code || '---')}</div>
+        <div style="font-size:0.8rem; color:var(--muted); display:flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-person-running"></i> ${esc(p.position || 'Sin posición')} · #${p.number || '0'}
+        </div>
       </div>
     </div>
     
-    <div style="font-size: 0.8rem; color: var(--muted); margin: 4px 0; display:flex; align-items:center; gap:6px;">
-      <i class="fa-solid fa-person-running" style="color:var(--primary)"></i> ${esc(p.position || 'Sin posición')} · #${p.number || '0'}
-    </div>
-
-    <div class="player-card-stats">
-      <div><span>PJ</span><b>${p.matches_played || 0}</b></div>
-      <div><span>Goles</span><b>${p.goals || 0}</b></div>
-      <div><span>Asist</span><b>${p.assists || 0}</b></div>
-      <div><span>⭐</span><b>${(p.rating || 5.0).toFixed(1)}</b></div>
-    </div>
-
-    <div class="player-card-footer">
-      <span class="player-card-tag" style="background:${tagColor}">${typeTag}</span>
-      <div class="row" style="gap:6px">
-        <button class="btn ghost icon-btn small" onclick="showPlayerDetailModalById(${p.id})" title="Ver detalle"><i class="fa-solid fa-eye"></i></button>
-        ${canEdit ? `<button class="btn ghost icon-btn small" onclick="editPlayer(${p.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>` : ''}
-        ${canEdit ? `<button class="btn ghost icon-btn small danger-hover" data-roster-remove="${p.id}" title="Quitar de Plantilla"><i class="fa-solid fa-user-minus"></i></button>` : ''}
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; background:rgba(0,0,0,0.2); padding:12px; border-radius:8px; text-align:center;">
+      <div><span style="display:block; font-size:0.7rem; color:var(--muted); margin-bottom:2px;">PJ</span><b style="font-size:1rem;">${p.matches_played || 0}</b></div>
+      <div><span style="display:block; font-size:0.7rem; color:var(--muted); margin-bottom:2px;">Goles</span><b style="font-size:1rem;">${p.goals || 0}</b></div>
+      <div><span style="display:block; font-size:0.7rem; color:var(--muted); margin-bottom:2px;">Asist</span><b style="font-size:1rem;">${p.assists || 0}</b></div>
+      <div style="cursor:${canEdit ? 'pointer' : 'default'}; border-radius:4px; transition:background 0.2s;" ${canEdit ? `onclick="editPlayerRating(${p.id})" class="glow-on-hover"` : ''} title="${canEdit ? 'Editar Calificación' : 'Calificación'}">
+        <span style="display:block; font-size:0.7rem; color:var(--muted); margin-bottom:2px;">Rating</span>
+        <b style="font-size:1rem; color:var(--warning); display:flex; justify-content:center; align-items:center; gap:4px;">
+          <i class="fa-solid fa-star" style="font-size:0.7rem;"></i>${(p.rating > 0 ? Number(p.rating) : 5.0).toFixed(1)}
+        </b>
       </div>
+    </div>
+
+    <div class="row" style="justify-content:flex-end; gap:8px; margin-top:auto;">
+      <button class="btn ghost icon-btn small" onclick="showPlayerDetailModalById(${p.id})" title="Ver detalle"><i class="fa-solid fa-eye"></i></button>
+      ${canEdit ? `<button class="btn ghost icon-btn small" onclick="editPlayer(${p.id})" title="Editar Jugador"><i class="fa-solid fa-pen"></i></button>` : ''}
+      ${canEdit ? `<button class="btn ghost icon-btn small danger-hover" data-roster-remove="${p.id}" title="Quitar de Plantilla"><i class="fa-solid fa-user-minus"></i></button>` : ''}
     </div>
   </div>`;
 }
@@ -828,7 +837,7 @@ function getPlayerForm(){
     ...f,
     name: f.name || $("#playerNameInput").value,
     number:+f.number||0, goals:+f.goals||0, assists:+f.assists||0,
-    matches_played:+f.matches_played||0, rating:+f.rating||0,
+    matches_played:+f.matches_played||0, rating: Number(f.rating) || 5.0,
     is_registered: type === "registrado",
     is_guest: type === "invitado",
     is_nn: type === "nn"
@@ -1006,6 +1015,26 @@ window.editPlayer = (id) => {
   state.section = "jugadores";
   render();
   fillPlayer(player(id));
+};
+
+window.editPlayerRating = async (id) => {
+  const p = player(id);
+  if(!p) return;
+  const current = (p.rating > 0 ? Number(p.rating) : 5.0).toFixed(1);
+  const val = prompt(`Nueva calificación para ${p.name} (1.0 - 10.0):`, current);
+  if(val === null) return;
+  const num = parseFloat(val.replace(',', '.'));
+  if(isNaN(num) || num < 1 || num > 10) return toast("Valor inválido. Debe ser entre 1 y 10", true);
+  
+  try {
+    const payload = {...p, rating: num};
+    await api("/api/players/"+id, {method:"PUT", body:JSON.stringify(payload)});
+    toast("Calificación actualizada");
+    await load();
+    render();
+  } catch(err) {
+    toast("Error: " + err.message, true);
+  }
 };
 
 function partido(){
