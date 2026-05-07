@@ -366,8 +366,6 @@ function bind(){
   $("#searchCodeBtn")?.addEventListener("click", searchPlayerByID);
 
   $("#matchForm")?.addEventListener("submit", saveMatch);
-  // FIXED: clearMatch now calls createNewMatch() which explicitly creates a new match with confirmation
-  $("#clearMatch")?.addEventListener("click", createNewMatch);
   $$("[data-edit-match]").forEach(b=>b.onclick=()=>{state.editMatch=Number(b.dataset.editMatch);state.section="partido";render();});
   $$("[data-del-match]").forEach(b=>b.onclick=()=>del("matches", b.dataset.delMatch, "partido"));
   
@@ -1394,7 +1392,10 @@ async function ratePlayer(matchId, playerId, rating) {
 // ─── CREAR PARTIDO ────────────────────────────────────────────────────────────
 // ÚNICA función autorizada para llamar POST /api/matches.
 // Solo se invoca cuando el usuario presiona "Crear Nuevo Partido".
+let isCreatingMatch = false;
 async function createNewMatch() {
+  if (isCreatingMatch) return;
+  
   const isAdmin = state.user?.role === "ADMIN";
   const isCap = state.user?.role === "CAPTAIN";
   if (!isAdmin && !isCap) {
@@ -1403,12 +1404,15 @@ async function createNewMatch() {
   }
   if (!confirm("¿Crear un partido nuevo? El partido actual no se eliminará.")) return;
 
-  const btn = $("#clearMatch");
-  const originalHtml = btn?.innerHTML;
-  if(btn) {
+  isCreatingMatch = true;
+  
+  const buttons = $$("button[onclick='createNewMatch()'], #clearMatch");
+  const originalHtmls = [];
+  buttons.forEach(btn => {
+    originalHtmls.push(btn.innerHTML);
     btn.disabled = true;
-    btn.innerHTML = `<i class=\"fa-solid fa-circle-notch fa-spin\"></i> Creando...`;
-  }
+    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Creando...`;
+  });
 
   try {
     const payload = {
@@ -1435,10 +1439,13 @@ async function createNewMatch() {
   } catch(err) {
     toast("Error al crear partido: " + err.message, true);
   } finally {
-    if(btn) {
-      btn.disabled = false;
-      btn.innerHTML = originalHtml;
-    }
+    isCreatingMatch = false;
+    buttons.forEach((btn, i) => {
+      if(btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalHtmls[i];
+      }
+    });
   }
 }
 

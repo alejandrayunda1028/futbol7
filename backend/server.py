@@ -877,6 +877,15 @@ def create_match():
     p["created_by_user_id"] = user["id"]
     conn = connect()
     cur = conn.cursor()
+    
+    # Duplicate Prevention: If user recently created a match with same title and it's still 'programado', return it
+    dup = conn.execute("SELECT * FROM matches WHERE created_by_user_id=? AND title=? AND status='programado' ORDER BY id DESC LIMIT 1", (user["id"], p["title"])).fetchone()
+    if dup:
+        conn.close()
+        dup["lineup_home"] = parse_json_list(dup["lineup_home"]); dup["lineup_away"] = parse_json_list(dup["lineup_away"])
+        dup["available_players"] = parse_json_list(dup.get("available_players"))
+        return jsonify(dup), 200
+        
     cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away, available_players, captain_home_id, captain_away_id, has_stream, stream_url, video_url, stream_desc, created_by_user_id)
     VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away, :available_players, :captain_home_id, :captain_away_id, :has_stream, :stream_url, :video_url, :stream_desc, :created_by_user_id)''', p)
     conn.commit()
