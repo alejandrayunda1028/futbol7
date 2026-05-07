@@ -316,7 +316,8 @@ body.theme-white .statline span { background: rgba(0,0,0,0.1); color: #0f172a; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .form-grid .full { grid-column: 1 / -1; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; font-weight: 500; color: var(--muted); position: relative;}
-label i { position: absolute; left: 14px; top: 38px; color: var(--muted); }
+label i { position: absolute; left: 14px; top: 38px; color: var(--muted); pointer-events: none; }
+label.avail-item i, label.lineup-row i { position: static; pointer-events: auto; color: inherit; }
 input, select, textarea {
   padding: 12px 16px; background: rgba(0,0,0,0.2); border: 1px solid var(--border);
   border-radius: 8px; color: var(--text); font-family: var(--font); font-size: 0.95rem;
@@ -390,12 +391,29 @@ select option { background: var(--bg-panel-solid); }
 }
 .header-title h2 { font-size: 1.8rem; font-weight: 700; }
 .header-actions { display: flex; align-items: center; gap: 16px; }
-.user-avatar {
-  width: 40px; height: 40px; border-radius: 50%; background: var(--bg-panel-solid);
-  display: flex; align-items: center; justify-content: center; border: 1px solid var(--border);
-}
-
 .content-area { flex: 1; padding: 40px; overflow-y: auto; }
+
+.user-avatar {
+  width: 44px; height: 44px; border-radius: 50%; background: var(--bg-panel-solid);
+  display: flex; align-items: center; justify-content: center; border: 2px solid var(--border);
+  overflow: hidden; flex-shrink: 0;
+}
+.user-avatar i { font-size: 1.2rem; }
+.user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.unconvoke-x {
+  position: absolute; top: 8px; right: 8px; font-size: 1.1rem; color: var(--danger);
+  opacity: 0.6; transition: all 0.2s; cursor: pointer; z-index: 5;
+}
+.unconvoke-x:hover { opacity: 1; transform: scale(1.1); }
+
+/* Poster helper for consistency */
+.poster-container {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; overflow: hidden; background: var(--bg-panel-solid);
+  border: 1px solid var(--border);
+}
+.poster-container img { width: 100%; height: 100%; object-fit: cover; }
 
 /* Panels & Grids */
 .panel {

@@ -12,10 +12,10 @@ const nav = [
 ];
 
 const slots = ["ARQ", "DEF I", "DEF D", "MED I", "MED C", "MED D", "DEL"];
-// LOCAL: Half Bottom (50-100), DEL at 52 (near center but in half)
-const homePos = [[50,90], [32,75], [68,75], [25,60], [50,60], [75,60], [50,52]];
-// RIVAL: Half Top (0-50), DEL at 48 (near center but in half)
-const awayPos = [[50,10], [68,25], [32,25], [75,40], [50,40], [25,40], [50,48]];
+// LOCAL: Half Bottom (50-100). ARQ at 94, DEF at 82, MED at 66, MED C at 74, DEL at 58
+const homePos = [[50,94], [32,82], [68,82], [22,66], [50,74], [78,66], [50,58]];
+// RIVAL: Half Top (0-50). ARQ at 6, DEF at 18, MED at 34, MED C at 26, DEL at 42
+const awayPos = [[50,6], [68,18], [32,18], [78,34], [50,26], [22,34], [50,42]];
 
 let socket;
 let state = {
@@ -480,6 +480,28 @@ function perfil() {
   
   return `
   <section class="panel glass" style="max-width:900px; margin:0 auto;">
+    <style>
+      .user-avatar {
+        width: 44px; height: 44px; border-radius: 50%; background: var(--bg-panel-solid);
+        display: flex; align-items: center; justify-content: center; border: 2px solid var(--border);
+        overflow: hidden; flex-shrink: 0;
+      }
+      .user-avatar i { font-size: 1.2rem; }
+
+      .unconvoke-x {
+        position: absolute; top: 8px; right: 8px; font-size: 1.1rem; color: var(--danger);
+        opacity: 0.6; transition: all 0.2s; cursor: pointer; z-index: 5;
+      }
+      .unconvoke-x:hover { opacity: 1; transform: scale(1.1); }
+
+      /* Poster helper for consistency */
+      .poster-container {
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 50%; overflow: hidden; background: var(--bg-panel-solid);
+        border: 1px solid var(--border);
+      }
+      .poster-container img { width: 100%; height: 100%; object-fit: cover; }
+    </style>
     <div style="text-align:center; margin-bottom:40px; position:relative;">
       <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width:300px; height:300px; background:radial-gradient(circle, var(--primary) 0%, transparent 70%); opacity:0.1; z-index:-1;"></div>
       ${avatarHtml}
@@ -679,9 +701,9 @@ function jugadores(){
     
     <section class="two-cols" style="align-items: flex-start; gap: 32px;">
       
-      <!-- COL LEFT: FORMULARIO -->
-      <div style="flex: 0 0 400px; display: flex; flex-direction: column; gap: 24px;">
-        <article class="panel glass" style="position: sticky; top: 20px;">
+      <!-- COL LEFT: FORMULARIO Y VISTA PREVIA -->
+      <div style="flex: 0 0 400px; display: flex; flex-direction: column; gap: 24px; position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; padding-right: 8px;">
+        <article class="panel glass" style="margin-bottom: 0;">
           <div style="margin-bottom: 24px;">
             <p class="eyebrow">${state.editPlayer ? "Modificando" : "Gestión de Jugadores"}</p>
             <h2 style="margin:0;">${state.editPlayer ? "Editar Jugador" : "Agregar Jugador"}</h2>
@@ -1066,17 +1088,25 @@ function partido(){
             ${state.players.map(p => {
               const isChecked = availIds.includes(p.id);
               return `
-                <label class="avail-item ${isChecked ? 'active' : ''}" style="position:relative;">
+                <label class="avail-item ${isChecked ? 'active' : ''}" style="position:relative; padding-top:20px;">
                   <input type="checkbox" value="${p.id}" class="avail-check" ${isChecked ? 'checked' : ''} style="display:none">
-                  <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
-                    <div style="display:flex; align-items:center; gap:8px; width:100%; justify-content:space-between; margin-bottom:4px;">
-                       <span style="font-family:monospace; opacity:0.6; font-size:0.7rem;">${esc(p.player_code || '---')}</span>
-                       ${isChecked ? '<i class="fa-solid fa-circle-check" style="color:var(--primary); font-size:0.9rem;"></i>' : '<i class="fa-regular fa-circle" style="opacity:0.3; font-size:0.9rem;"></i>'}
+                  ${isChecked ? `
+                    <div class="unconvoke-x" onclick="event.preventDefault(); this.parentElement.querySelector('input').checked=false; this.parentElement.classList.remove('active'); saveMatchConvocatoria();" title="Desconvocar">
+                      <i class="fa-solid fa-circle-xmark"></i>
                     </div>
-                    <strong style="font-size:0.95rem; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%;">${esc(p.name)}</strong>
-                    <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-top:4px;">
-                       <span style="font-size:0.75rem; color:var(--muted)">⭐ ${p.rating || '5.0'}</span>
-                       ${isChecked ? '<span class="badge primary" style="font-size:0.6rem; padding:2px 6px;">CONVOCADO</span>' : ''}
+                  ` : ''}
+                  <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                    <div style="display:flex; align-items:center; gap:8px; width:100%; justify-content:space-between; margin-bottom:4px;">
+                       <span style="font-family:monospace; opacity:0.6; font-size:0.75rem;">${esc(p.player_code || '---')}</span>
+                       ${isChecked ? '<i class="fa-solid fa-circle-check" style="color:var(--primary); font-size:1rem;"></i>' : '<i class="fa-regular fa-circle" style="opacity:0.3; font-size:1rem;"></i>'}
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px; width:100%;">
+                      ${poster(p, 'sm')}
+                      <strong style="font-size:1rem; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(p.name)}</strong>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-top:6px;">
+                       <span style="font-size:0.8rem; color:var(--muted)">⭐ ${(p.rating || 5.0).toFixed(1)}</span>
+                       ${isChecked ? '<span class="badge primary" style="font-size:0.65rem; padding:4px 8px;">CONVOCADO</span>' : ''}
                     </div>
                   </div>
                 </label>
@@ -1184,7 +1214,7 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit, match){
     const photoUrl = p ? (p.photo_path || p.poster_path) : null;
     const photoHtml = photoUrl ? `<img src="${esc(photoUrl)}" style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid var(--primary); flex-shrink:0;">` : `<div style="width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:center; border:1px dashed var(--border); flex-shrink:0;"><i class="fa-solid fa-user" style="opacity:0.5"></i></div>`;
     
-    return `<label style="display:flex; flex-direction:row; align-items:center; gap:12px; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:12px; margin-bottom:0;">
+    return `<label class="lineup-row" style="display:flex; flex-direction:row; align-items:center; gap:12px; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:12px; margin-bottom:0;">
       ${photoHtml}
       <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
         <span style="font-size:0.8rem; font-weight:700; color:var(--muted)">${label}</span>
