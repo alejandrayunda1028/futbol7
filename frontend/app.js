@@ -1046,12 +1046,19 @@ function partido(){
   if (match && !state.editMatch) state.editMatch = match.id;
   
   if(!match) {
+    const isAdmin = state.user.role === "ADMIN";
+    const isCap = state.user.role === "CAPTAIN";
+    
+    let emptyMsg = "";
+    if (isAdmin) emptyMsg = "No hay partidos creados todavía.";
+    else if (isCap) emptyMsg = "Aún no has creado partidos.";
+    else emptyMsg = "No tienes partidos activos.<br>Cuando seas convocado a un partido, podrás ver la información aquí.";
+
     return `
     <section class="panel glass" style="text-align:center; padding:60px 20px;">
       <i class="fa-solid fa-calendar-xmark" style="font-size:4rem; color:var(--muted); margin-bottom:20px; opacity:0.3;"></i>
-      <h2>No hay partidos activos</h2>
-      <p class="muted" style="max-width:500px; margin:12px auto 24px;">${state.user.role === 'ADMIN' ? 'Crea un partido nuevo desde el botón "Crear Nuevo Partido" para empezar.' : 'Cuando el capitán te agregue a la convocatoria de un partido, podrás ver los equipos aquí.'}</p>
-      ${state.user.role === 'ADMIN' ? `<button class="btn primary" onclick="createNewMatch()"><i class="fa-solid fa-plus"></i> Crear Primer Partido</button>` : ''}
+      <p class="muted" style="max-width:500px; margin:12px auto 24px; font-size:1.1rem;">${emptyMsg}</p>
+      ${(isAdmin || isCap) ? `<button class="btn primary" onclick="createNewMatch()"><i class="fa-solid fa-plus"></i> Crear partido</button>` : ''}
     </section>`;
   }
 
@@ -1097,8 +1104,11 @@ function partido(){
           ${(isAdmin || (isCap && match.created_by_user_id === state.user.id)) && match.status !== 'FINALIZADO' ? 
             `<button type="button" class="btn danger" onclick="finishMatch(${match.id})"><i class="fa-solid fa-flag-checkered"></i> Finalizar Partido</button>` : ''}
           
-          ${isAdmin ? `
+          ${(isAdmin || isCap) ? `
           <button type="button" class="btn ghost" id="clearMatch" onclick="createNewMatch()"><i class="fa-solid fa-plus"></i> Crear Nuevo Partido</button>
+          ` : ''}
+          
+          ${isAdmin ? `
           <button type="button" class="btn ghost" onclick="cleanDuplicateMatches()" title="Limpiar partidos duplicados" style="opacity:0.6"><i class="fa-solid fa-broom"></i></button>
           ` : ''}
         </div>
