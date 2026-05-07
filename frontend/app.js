@@ -74,10 +74,6 @@ function initSocket() {
   socket = io();
   
   socket.on("connect", () => {
-    $("#connectionStatus").classList.remove("hidden");
-    $("#connectionStatus").classList.add("connected");
-    $("#connectionStatus").innerHTML = `<i class="fa-solid fa-wifi"></i> <span>En línea</span>`;
-    
     // Re-join match room if in partido section
     if (state.section === "partido" && state.editMatch) {
       socket.emit("join_match", { match_id: state.editMatch });
@@ -85,8 +81,7 @@ function initSocket() {
   });
   
   socket.on("disconnect", () => {
-    $("#connectionStatus").classList.remove("hidden", "connected");
-    $("#connectionStatus").innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> <span>Desconectado</span>`;
+    // Silently handle disconnect
   });
   
   socket.on("match_updated", (m) => {
@@ -346,7 +341,7 @@ function bind(){
     const p = getPlayerForm();
     if (!p.name && p.is_nn) p.name = "Jugador NN";
     $("#preview").innerHTML = `
-      <div class="player-card" style="width:100%; max-width:300px; margin:0 auto; transform:scale(1.05);">
+      <div class="player-card" style="width:100%; max-width:300px; margin:0 auto;">
         <div class="player-card-header">
           <div class="player-card-img-wrap">
             <img src="${esc(p.photo_path || '')}" class="player-card-img" onerror="this.src='https://ui-avatars.com/api/?name=${esc(p.name || 'J')}&background=random&color=fff'">
@@ -798,7 +793,7 @@ function jugadores(){
           </form>
         </article>
 
-        <article class="panel glass">
+        <article class="panel glass" style="margin-top: 24px;">
           <p class="eyebrow" style="margin-bottom:12px;">Vista Previa de Tarjeta</p>
           <div id="preview" style="display:flex; justify-content:center; background:rgba(0,0,0,0.2); padding:32px; border-radius:20px; border:1px solid var(--border);">
              <p class="muted" style="font-size:0.8rem; font-style:italic;">Completa la información para ver la vista previa.</p>
@@ -1096,13 +1091,17 @@ function partido(){
             <i class="fa-solid fa-location-dot"></i> ${esc(match?.venue || "Cancha principal")}
           </p>
         </div>
-        ${isAdmin ? `
         <div class="row" style="gap: 12px;">
-          <button type="button" class="btn primary glow-on-hover" onclick="$('#matchForm').requestSubmit()"><i class="fa-solid fa-floppy-disk"></i> Guardar Cambios</button>
-          <button type="button" class="btn ghost" id="clearMatch"><i class="fa-solid fa-plus"></i> Crear Nuevo Partido</button>
-          <button type="button" class="btn ghost" id="cleanDuplicatesBtn" title="Limpiar partidos duplicados" style="opacity:0.6"><i class="fa-solid fa-broom"></i></button>
+          ${canEdit && match.status !== 'FINALIZADO' ? `<button type="button" class="btn primary glow-on-hover" onclick="$('#matchForm').requestSubmit()"><i class="fa-solid fa-floppy-disk"></i> Guardar Partido</button>` : ''}
+          
+          ${(isAdmin || (isCap && match.created_by_user_id === state.user.id)) && match.status !== 'FINALIZADO' ? 
+            `<button type="button" class="btn danger" onclick="finishMatch(${match.id})"><i class="fa-solid fa-flag-checkered"></i> Finalizar Partido</button>` : ''}
+          
+          ${isAdmin ? `
+          <button type="button" class="btn ghost" id="clearMatch" onclick="createNewMatch()"><i class="fa-solid fa-plus"></i> Crear Nuevo Partido</button>
+          <button type="button" class="btn ghost" onclick="cleanDuplicateMatches()" title="Limpiar partidos duplicados" style="opacity:0.6"><i class="fa-solid fa-broom"></i></button>
+          ` : ''}
         </div>
-        ` : ''}
       </div>
     </article>
 
@@ -1249,17 +1248,24 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit, match){
     const photoUrl = p ? (p.photo_path || p.poster_path) : null;
     const photoHtml = photoUrl ? `<img src="${esc(photoUrl)}" style="width:40px; height:40px; border-radius:50%; object-fit:cover; border:2px solid var(--primary); flex-shrink:0;">` : `<div style="width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:center; border:1px dashed var(--border); flex-shrink:0;"><i class="fa-solid fa-user" style="opacity:0.5"></i></div>`;
     
+    let ratingHtml = "";
+    if (match.status === "FINALIZADO" && selVal && (canEdit || state.user.role === "ADMIN")) {
+      ratingHtml = `<select onchange="ratePlayer(${match.id}, ${selVal}, this.value); this.disabled=true;" style="margin-top:4px; padding:4px; border-radius:4px; font-size:0.8rem; background:var(--primary); border:none; color:white; cursor:pointer;">
+        <option value="">⭐ Calificar</option>
+        ${[1,2,3,4,5,6,7,8,9,10].map(n => `<option value="${n}">${n} pts</option>`).join("")}
+      </select>`;
+    }
+
     return `<label class="lineup-row" style="display:flex; flex-direction:row; align-items:center; gap:12px; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:12px; margin-bottom:0;">
       ${photoHtml}
       <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
         <span style="font-size:0.8rem; font-weight:700; color:var(--muted)">${label}</span>
-        <select name="${side}_${i}" class="lineup-select" data-match-id="${match.id}" ${canEdit?'':'disabled'} onchange="saveLineupChange(this)" style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
+        <select name="${side}_${i}" class="lineup-select" data-match-id="${match.id}" ${canEdit && match.status !== 'FINALIZADO' ? '' : 'disabled'} onchange="saveLineupChange(this)" style="padding:8px; border:none; background:rgba(255,255,255,0.05); border-radius:6px; font-size:0.9rem;">
           <option value="">Sin asignar</option>
           ${extraOpt}
           ${list.map(pl => {
             const isOpposingCaptain = (side === 'home' && Number(match.captain_away_id) === pl.id) || (side === 'away' && Number(match.captain_home_id) === pl.id);
             
-            // Check if player is occupied elsewhere
             let occupationMsg = "";
             let isDisabled = false;
 
@@ -1267,23 +1273,15 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit, match){
               occupationMsg = " — Capitán Rival";
               isDisabled = true;
             } else {
-              // Check Home lineup
               const homeIdx = match.lineup_home.indexOf(pl.id);
-              if (homeIdx > -1) {
-                if (side === 'home' && homeIdx === i) { /* it's me, ok */ }
-                else {
-                   occupationMsg = ` — Ocupado (${slots[homeIdx]} Local)`;
-                   isDisabled = true;
-                }
+              if (homeIdx > -1 && !(side === 'home' && homeIdx === i)) {
+                occupationMsg = ` — Ocupado (${slots[homeIdx]} Local)`;
+                isDisabled = true;
               }
-              // Check Away lineup
               const awayIdx = match.lineup_away.indexOf(pl.id);
-              if (awayIdx > -1) {
-                if (side === 'away' && awayIdx === i) { /* it's me, ok */ }
-                else {
-                   occupationMsg = ` — Ocupado (${slots[awayIdx]} Rival)`;
-                   isDisabled = true;
-                }
+              if (awayIdx > -1 && !(side === 'away' && awayIdx === i)) {
+                occupationMsg = ` — Ocupado (${slots[awayIdx]} Rival)`;
+                isDisabled = true;
               }
             }
             
@@ -1292,6 +1290,7 @@ function lineupSelectors(side, selected=[], availIds=[], canEdit, match){
             </option>`;
           }).join("")}
         </select>
+        ${ratingHtml}
       </div>
     </label>`;
   }).join("");
@@ -1357,6 +1356,29 @@ async function saveMatch(e){
     </div>`;
     else toast(err.message, true);
   }
+}
+
+// ─── FINALIZAR PARTIDO ────────────────────────────────────────────────────────
+async function finishMatch(matchId) {
+  if (!confirm("¿Seguro que deseas finalizar el partido? Ya no se podrán cambiar los equipos y se habilitará la calificación de jugadores.")) return;
+  try {
+    await api(`/api/matches/${matchId}/finish`, { method: "POST" });
+    toast("Partido finalizado.");
+    await load(false);
+    render();
+  } catch (err) { toast(err.message, true); }
+}
+
+// ─── CALIFICAR JUGADOR ────────────────────────────────────────────────────────
+async function ratePlayer(matchId, playerId, rating) {
+  if (!rating || rating < 1 || rating > 10) return toast("Calificación inválida", true);
+  if (!confirm(`¿Calificar con ${rating} a este jugador? Esta acción es irreversible para este partido.`)) return;
+  try {
+    await api(`/api/matches/${matchId}/rate/${playerId}`, { method: "POST", body: JSON.stringify({ rating: Number(rating) }) });
+    toast("Calificación guardada.");
+    await load(false);
+    render();
+  } catch (err) { toast(err.message, true); }
 }
 
 // ─── CREAR PARTIDO ────────────────────────────────────────────────────────────
@@ -1535,7 +1557,66 @@ function pitch(m, side, isMini=false){
 }
 
 function contenido(){
-  return `<section class="two-cols">
+  const isAdmin = state.user.role === "ADMIN";
+  const formsHtml = isAdmin ? `
+    <article class="panel glass" style="margin-bottom:24px;">
+      <h2><i class="fa-solid fa-lock"></i> Administrar Multimedia</h2>
+      <p class="muted">Selecciona el partido al que quieres asociar este video o momento. Solo guarda enlaces, no subas archivos pesados.</p>
+      <form id="videoForm" class="form-grid" style="margin-top:16px;">
+        <h3 class="full">Agregar Video</h3>
+        <label class="full">Partido Relacionado
+          <select name="match_id" required>
+            <option value="">Selecciona un partido...</option>
+            ${state.matches.map(m=>`<option value="${m.id}">${esc(m.title)} - ${esc(m.match_date)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Título<input name="title" required></label>
+        <label>Plataforma<select name="platform"><option>youtube</option><option>tiktok</option><option>externo</option></select></label>
+        <label>Categoría<input name="category" value="resumen"></label>
+        <label class="full">URL del video<input name="url" required></label>
+        <div class="full"><button class="btn ghost"><i class="fa-solid fa-plus"></i> Guardar Video</button></div>
+        <div id="videoMsg" class="full"></div>
+      </form>
+      <hr style="border-color:var(--border); margin:24px 0">
+      <form id="highlightForm" class="form-grid">
+        <h3 class="full">Agregar Momento Destacado</h3>
+        <label class="full">Partido Relacionado
+          <select name="match_id" required>
+            <option value="">Selecciona un partido...</option>
+            ${state.matches.map(m=>`<option value="${m.id}">${esc(m.title)} - ${esc(m.match_date)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Título<input name="title" required></label>
+        <label>Tipo de Momento
+          <select name="moment_type">
+            <option value="gol">Gol</option>
+            <option value="falta">Falta</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="sustitucion">Sustitución</option>
+            <option value="destacada">Jugada Destacada</option>
+            <option value="otro" selected>Otro</option>
+          </select>
+        </label>
+        <label>Jugador (Opcional)
+          <select name="player_id">
+            <option value="">Ninguno</option>
+            ${state.players.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="full">URL del Momento (Imagen/Video)<input name="media_path" required placeholder="https://..."></label>
+        <label class="full">Tipo de Archivo Enlazado
+          <select name="media_type"><option value="image">Imagen</option><option value="video">Video</option></select>
+        </label>
+        <label class="full">Descripción (Opcional)<textarea name="description" style="min-height:60px"></textarea></label>
+        <div class="full"><button class="btn ghost"><i class="fa-solid fa-bolt"></i> Guardar Momento</button></div>
+        <div id="highlightMsg" class="full"></div>
+      </form>
+    </article>
+  ` : "";
+
+  return `
+  ${formsHtml}
+  <section class="two-cols">
     <article class="panel glass">
       <h2>Videos / Transmisiones</h2>
       <div class="item-list">${state.videos.map(videoCard).join("") || empty("Aún no hay videos.")}</div>
@@ -1550,7 +1631,6 @@ function contenido(){
         return `<div class="item-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
           <div style="width:100%; display:flex; justify-content:space-between; align-items:flex-start;">
             <div>
-              <span class="badge" style="background:var(--primary); color:#fff"><i class="fa-solid fa-stopwatch"></i> ${esc(h.minute)}</span> 
               <span class="badge"><i class="fa-solid ${momentIcon}"></i> ${esc(h.moment_type.toUpperCase())}</span>
               ${matchInfo}
             </div>
@@ -1624,51 +1704,6 @@ function ajustes(){
       </form>
     </article>
     
-    <article class="panel glass">
-      <h2><i class="fa-solid fa-lock"></i> Zona de Administración</h2>
-      <div class="${isAdmin ? "" : "hidden"}">
-        <form id="videoForm" class="form-grid">
-          <h3 class="full">Agregar Video</h3>
-          <label>Título<input name="title" required></label>
-          <label>Plataforma<select name="platform"><option>youtube</option><option>tiktok</option><option>externo</option></select></label>
-          <label class="full">URL<input name="url" required></label>
-          <label>Categoría<input name="category" value="resumen"></label>
-          <div class="full"><button class="btn ghost"><i class="fa-solid fa-plus"></i> Guardar Video</button></div>
-          <div id="videoMsg" class="full"></div>
-        </form>
-        <hr style="border-color:var(--border); margin:24px 0">
-        <form id="highlightForm" class="form-grid">
-          <h3 class="full">Agregar Momento (Highlight)</h3>
-          <label>Título<input name="title" required></label>
-          <label>Minuto<input name="minute" placeholder="Ej: 23'"></label>
-          <label>Tipo de Momento
-            <select name="moment_type">
-              <option value="gol">Gol</option>
-              <option value="falta">Falta</option>
-              <option value="tarjeta">Tarjeta</option>
-              <option value="sustitucion">Sustitución</option>
-              <option value="destacada">Jugada Destacada</option>
-              <option value="otro" selected>Otro</option>
-            </select>
-          </label>
-          <label>Partido Relacionado
-            <select name="match_id">
-              <option value="">Ninguno</option>
-              ${state.matches.map(m=>`<option value="${m.id}">${esc(m.title)} - ${esc(m.match_date)}</option>`).join("")}
-            </select>
-          </label>
-          <label class="full">Archivo Multimedia (Imagen/Video)
-            <input type="file" id="highlightMedia" accept="image/*,video/mp4,video/webm">
-          </label>
-          <label class="full">Descripción<textarea name="description" style="min-height:60px"></textarea></label>
-          <div class="full"><button class="btn ghost"><i class="fa-solid fa-bolt"></i> Guardar Momento</button></div>
-          <div id="highlightMsg" class="full"></div>
-        </form>
-      </div>
-      <div class="${isAdmin ? "hidden" : "muted"}" style="padding:20px; text-align:center; border:1px dashed var(--border); border-radius:12px;">
-        <i class="fa-solid fa-shield-halved" style="font-size:2rem; margin-bottom:12px; opacity:0.5"></i>
-        <p>Solo el administrador puede agregar videos, momentos destacados o gestionar configuraciones globales.</p>
-      </div>
     </article>
   </section>`;
 }
@@ -1700,31 +1735,20 @@ async function saveHighlight(e){
   e.preventDefault();
   try{
     const form = e.currentTarget;
-    const file = $("#highlightMedia")?.files[0];
-    let media_path = "", media_type = "";
-    
-    if (file) {
-      $("#highlightMsg").innerHTML = `<div class="muted"><i class="fa-solid fa-spinner fa-spin"></i> Subiendo archivo...</div>`;
-      const fd = new FormData();
-      fd.append("media", file);
-      const res = await api("/api/upload-media", { method:"POST", body:fd });
-      media_path = res.url;
-      media_type = res.type;
-    }
-    
     const body = {
       title: form.title.value,
-      minute: form.minute.value,
       description: form.description.value,
       moment_type: form.moment_type.value,
       match_id: form.match_id.value ? Number(form.match_id.value) : null,
-      media_path: media_path,
-      media_type: media_type
+      media_path: form.media_path.value,
+      media_type: form.media_type.value
     };
     
+    $("#highlightMsg").innerHTML = `<div class="muted"><i class="fa-solid fa-spinner fa-spin"></i> Guardando...</div>`;
     await api("/api/highlights",{method:"POST",body:JSON.stringify(body)});
     form.reset();
     toast("Momento guardado"); 
+    $("#highlightMsg").innerHTML = "";
   }catch(err){ $("#highlightMsg").innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`; }
 }
 async function del(table,id,section){

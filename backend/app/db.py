@@ -155,6 +155,17 @@ def init_db():
         message TEXT NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    
+    CREATE TABLE IF NOT EXISTS match_player_ratings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id INTEGER NOT NULL,
+        player_id INTEGER NOT NULL,
+        rating REAL NOT NULL,
+        rated_by INTEGER,
+        applied_to_stars INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(match_id, player_id)
+    );
     """)
 
     # Migrations: add new columns to existing databases safely
@@ -189,6 +200,11 @@ def init_db():
         ("phone", "ALTER TABLE players ADD COLUMN phone TEXT DEFAULT ''"),
         ("created_at", "ALTER TABLE players ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP"),
         ("updated_at", "ALTER TABLE players ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP"),
+        ("match_id", "ALTER TABLE videos ADD COLUMN match_id INTEGER DEFAULT NULL"),
+        ("stars", "ALTER TABLE players ADD COLUMN stars INTEGER DEFAULT 1"),
+        ("rating_points", "ALTER TABLE players ADD COLUMN rating_points INTEGER DEFAULT 0"),
+        ("negative_rating_points", "ALTER TABLE players ADD COLUMN negative_rating_points INTEGER DEFAULT 0"),
+        ("created_by_user_id", "ALTER TABLE matches ADD COLUMN created_by_user_id INTEGER DEFAULT NULL"),
     ]:
         try:
             cur.execute(ddl)

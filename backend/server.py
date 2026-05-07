@@ -598,9 +598,8 @@ def bootstrap():
             ids.update(m["available_players"])
         return ids
 
-    if user["role"] in ["ADMIN", "CAPTAIN"]:
+    if user["role"] == "ADMIN":
         matches = all_matches
-        # For Admin/Cap, show all roster players + anyone involved in matches
         involved = get_involved_players(matches)
         players = conn.execute("SELECT * FROM players WHERE in_roster=1 ORDER BY team_side, number, name").fetchall()
         roster_ids = {p["id"] for p in players}
@@ -610,36 +609,51 @@ def bootstrap():
             extras = conn.execute(f"SELECT * FROM players WHERE id IN ({placeholders})", list(extra_ids)).fetchall()
             players.extend(extras)
     else:
-        # PLAYER role: Only see matches they are in and players in those matches
+        # CAPTAIN or PLAYER role
         matches = []
         relevant_player_ids = set()
+        is_cap = (user["role"] == "CAPTAIN")
+        
+        for m in all_matches:
+            is_in_lineup = (p_id in m["lineup_home"] or p_id in m["lineup_away"]) if p_id else False
+            is_in_avail = (p_id in m["available_players"]) if p_id else False
+            is_mgr = (p_id in m["managers"]) if p_id else False
+            is_match_cap = (m.get("captain_home_id") == p_id or m.get("captain_away_id") == p_id) if p_id else False
+            is_creator = (m.get("created_by_user_id") == user["id"])
+            
+            if is_in_lineup or is_in_avail or is_mgr or is_match_cap or (is_cap and is_creator):
+                matches.append(m)
+                relevant_player_ids.update(m["lineup_home"])
+                relevant_player_ids.update(m["lineup_away"])
+                relevant_player_ids.update(m["available_players"])
+        
         if p_id:
-            for m in all_matches:
-                # Check if player is in lineup, available list, or is a manager/captain
-                is_in_lineup = (p_id in m["lineup_home"] or p_id in m["lineup_away"])
-                is_in_avail = (p_id in m["available_players"])
-                is_mgr = (p_id in m["managers"])
-                is_match_cap = (m.get("captain_home_id") == p_id or m.get("captain_away_id") == p_id)
-                
-                if is_in_lineup or is_in_avail or is_mgr or is_match_cap:
-                    matches.append(m)
-                    relevant_player_ids.update(m["lineup_home"])
-                    relevant_player_ids.update(m["lineup_away"])
-                    relevant_player_ids.update(m["available_players"])
-            
             relevant_player_ids.add(p_id)
-            relevant_player_ids.discard(None)
-            
+        relevant_player_ids.discard(None)
+        
+        if is_cap:
+            players = conn.execute("SELECT * FROM players WHERE in_roster=1 ORDER BY team_side, number, name").fetchall()
+            roster_ids = {p["id"] for p in players}
+            extra_ids = relevant_player_ids - roster_ids
+            if extra_ids:
+                placeholders = ','.join(['?'] * len(extra_ids))
+                extras = conn.execute(f"SELECT * FROM players WHERE id IN ({placeholders})", list(extra_ids)).fetchall()
+                players.extend(extras)
+        else:
             if relevant_player_ids:
                 placeholders = ','.join(['?'] * len(relevant_player_ids))
                 players = conn.execute(f"SELECT * FROM players WHERE id IN ({placeholders})", list(relevant_player_ids)).fetchall()
-            else:
+            elif p_id:
                 players = conn.execute("SELECT * FROM players WHERE id=?", (p_id,)).fetchall()
-        else:
-            players = []
+            else:
+                players = []
 
-    videos = conn.execute("SELECT * FROM videos ORDER BY id DESC").fetchall()
-    highlights = conn.execute("SELECT * FROM highlights ORDER BY id DESC").fetchall()
+    visible_match_ids = {m["id"] for m in matches}
+    all_videos = conn.execute("SELECT * FROM videos ORDER BY id DESC").fetchall()
+    all_highlights = conn.execute("SELECT * FROM highlights ORDER BY id DESC").fetchall()
+    
+    videos = [v for v in all_videos if v.get("match_id") in visible_match_ids or user["role"] == "ADMIN"]
+    highlights = [h for h in all_highlights if h.get("match_id") in visible_match_ids or user["role"] == "ADMIN"]
     
     conn.close()
     return jsonify({
@@ -860,10 +874,11 @@ def create_match():
     user, err, code = require_roles({"ADMIN", "CAPTAIN"})
     if not user: return err, code
     p = match_payload()
+    p["created_by_user_id"] = user["id"]
     conn = connect()
     cur = conn.cursor()
-    cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away, available_players, captain_home_id, captain_away_id, has_stream, stream_url, video_url, stream_desc)
-    VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away, :available_players, :captain_home_id, :captain_away_id, :has_stream, :stream_url, :video_url, :stream_desc)''', p)
+    cur.execute('''INSERT INTO matches (title, match_date, venue, score_home, score_away, status, lineup_home, lineup_away, available_players, captain_home_id, captain_away_id, has_stream, stream_url, video_url, stream_desc, created_by_user_id)
+    VALUES (:title, :match_date, :venue, :score_home, :score_away, :status, :lineup_home, :lineup_away, :available_players, :captain_home_id, :captain_away_id, :has_stream, :stream_url, :video_url, :stream_desc, :created_by_user_id)''', p)
     conn.commit()
     row = conn.execute("SELECT * FROM matches WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
@@ -935,9 +950,89 @@ def update_match(match_id):
     row["lineup_home"] = parse_json_list(row["lineup_home"]); row["lineup_away"] = parse_json_list(row["lineup_away"])
     row["available_players"] = parse_json_list(row.get("available_players"))
     socketio.emit("match_updated", row, to=f"match_{match_id}")
-    # Also emit to global for dashboard updates if needed, or just keep it room-based
     socketio.emit("match_updated_global", {"id": match_id})
     return jsonify(row)
+
+@app.route("/api/matches/<int:match_id>/finish", methods=["POST"])
+def finish_match(match_id):
+    user, err, code = require_roles({"ADMIN", "CAPTAIN"})
+    if not user: return err, code
+    conn = connect()
+    can_edit = False
+    if is_match_manager(conn, user["id"], match_id):
+        can_edit = True
+    if not can_edit:
+        conn.close()
+        return jsonify({"error": "No autorizado"}), 403
+    conn.execute("UPDATE matches SET status='FINALIZADO' WHERE id=?", (match_id,))
+    conn.commit()
+    row = conn.execute("SELECT * FROM matches WHERE id=?", (match_id,)).fetchone()
+    conn.close()
+    row["lineup_home"] = parse_json_list(row["lineup_home"])
+    row["lineup_away"] = parse_json_list(row["lineup_away"])
+    row["available_players"] = parse_json_list(row.get("available_players"))
+    socketio.emit("match_updated", row)
+    socketio.emit("match_updated_global", {"id": match_id})
+    return jsonify(row)
+
+@app.route("/api/matches/<int:match_id>/rate/<int:player_id>", methods=["POST"])
+def rate_player(match_id, player_id):
+    user, err, code = require_roles({"ADMIN", "CAPTAIN"})
+    if not user: return err, code
+    
+    conn = connect()
+    can_edit = False
+    if is_match_manager(conn, user["id"], match_id):
+        can_edit = True
+    if not can_edit:
+        conn.close()
+        return jsonify({"error": "No tienes permiso para calificar en este partido"}), 403
+    
+    body = request.get_json() or {}
+    rating = safe_float(body.get("rating"), 0)
+    if rating < 1 or rating > 10:
+        conn.close()
+        return jsonify({"error": "La calificación debe estar entre 1 y 10"}), 400
+        
+    existing = conn.execute("SELECT * FROM match_player_ratings WHERE match_id=? AND player_id=?", (match_id, player_id)).fetchone()
+    if existing:
+        conn.close()
+        return jsonify({"error": "El jugador ya fue calificado para este partido"}), 400
+        
+    conn.execute("INSERT INTO match_player_ratings (match_id, player_id, rating, rated_by, applied_to_stars) VALUES (?, ?, ?, ?, 1)",
+                 (match_id, player_id, rating, user["id"]))
+                 
+    player_row = conn.execute("SELECT stars, rating_points, negative_rating_points FROM players WHERE id=?", (player_id,)).fetchone()
+    if player_row:
+        stars = player_row["stars"] or 1
+        rp = player_row["rating_points"] or 0
+        nrp = player_row["negative_rating_points"] or 0
+        
+        if rating > 5 and stars < 8:
+            rp += rating
+            while rp >= 50 and stars < 10:
+                stars += 1
+                rp -= 50
+        elif rating > 8 and stars >= 8:
+            rp += rating
+            while rp >= 100 and stars < 10:
+                stars += 1
+                rp -= 100
+                
+        if rating < 4:
+            nrp += (4 - rating) * 10
+            while nrp >= 50 and stars > 1:
+                stars -= 1
+                nrp -= 50
+                
+        conn.execute("UPDATE players SET stars=?, rating_points=?, negative_rating_points=?, rating=? WHERE id=?", 
+                     (stars, rp, nrp, rating, player_id))
+    
+    conn.commit()
+    conn.close()
+    
+    socketio.emit("data_changed", {"type": "players"})
+    return jsonify({"ok": True})
 
 @app.route("/api/matches/<int:match_id>", methods=["DELETE"])
 def delete_match(match_id):
@@ -960,8 +1055,8 @@ def create_video():
     if not user: return err, code
     b = request.get_json() or {}
     conn = connect(); cur = conn.cursor()
-    cur.execute("INSERT INTO videos (title, platform, url, category) VALUES (?, ?, ?, ?)",
-                ((b.get("title") or "Video").strip(), (b.get("platform") or "youtube").strip(), (b.get("url") or "").strip(), (b.get("category") or "resumen").strip()))
+    cur.execute("INSERT INTO videos (title, platform, url, category, match_id) VALUES (?, ?, ?, ?, ?)",
+                ((b.get("title") or "Video").strip(), (b.get("platform") or "youtube").strip(), (b.get("url") or "").strip(), (b.get("category") or "resumen").strip(), safe_int(b.get("match_id"), 0) or None))
     conn.commit(); row = conn.execute("SELECT * FROM videos WHERE id=?", (cur.lastrowid,)).fetchone(); conn.close()
     socketio.emit("data_changed", {"type": "videos"})
     return jsonify(row), 201
