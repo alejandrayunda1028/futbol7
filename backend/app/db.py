@@ -205,6 +205,11 @@ def init_db():
         ("rating_points", "ALTER TABLE players ADD COLUMN rating_points INTEGER DEFAULT 0"),
         ("negative_rating_points", "ALTER TABLE players ADD COLUMN negative_rating_points INTEGER DEFAULT 0"),
         ("created_by_user_id", "ALTER TABLE matches ADD COLUMN created_by_user_id INTEGER DEFAULT NULL"),
+        ("player_id", "ALTER TABLE highlights ADD COLUMN player_id INTEGER DEFAULT NULL"),
+        ("app_theme", "ALTER TABLE settings ADD COLUMN app_theme TEXT DEFAULT 'dark'"),
+        ("app_bg_color", "ALTER TABLE settings ADD COLUMN app_bg_color TEXT DEFAULT ''"),
+        ("nickname", "ALTER TABLE players ADD COLUMN nickname TEXT DEFAULT ''"),
+        ("in_roster", "ALTER TABLE players ADD COLUMN in_roster INTEGER DEFAULT 1"),
     ]:
         try:
             cur.execute(ddl)

@@ -1102,6 +1102,9 @@ function partido(){
           ${(isAdmin || (isCap && match.created_by_user_id === state.user.id)) && match.status !== 'FINALIZADO' ? 
             `<button type="button" class="btn danger" onclick="finishMatch(${match.id})"><i class="fa-solid fa-flag-checkered"></i> Finalizar Partido</button>` : ''}
           
+          ${(isAdmin || isCap) && match.status === 'FINALIZADO' ?
+            `<button type="button" class="btn ghost" onclick="showRatingModal(${match.id})"><i class="fa-solid fa-star"></i> Calificar Jugadores</button>` : ''}
+          
           ${(isAdmin || isCap) ? `
           <button type="button" class="btn ghost" id="clearMatch" onclick="createNewMatch()"><i class="fa-solid fa-plus"></i> Crear Nuevo Partido</button>
           ` : ''}
@@ -1338,23 +1341,38 @@ async function saveMatch(e){
       throw new Error("No puedes seleccionar el mismo jugador como Capitán Local y Capitán Rival.");
     }
 
+    // ── Validación: 7 jugadores por equipo ───────────────────────────────────
+    const homeAssigned = (payload.lineup_home || []).filter(id => id !== null && id !== undefined && id !== 0).length;
+    const awayAssigned = (payload.lineup_away || []).filter(id => id !== null && id !== undefined && id !== 0).length;
+    if (homeAssigned < 7 || awayAssigned < 7) {
+      const missingHome = 7 - homeAssigned;
+      const missingAway = 7 - awayAssigned;
+      let msg = "";
+      if (missingHome > 0 && missingAway > 0) {
+        msg = `Faltan ${missingHome} jugador(es) en Equipo Local y ${missingAway} en Equipo Rival.`;
+      } else if (missingHome > 0) {
+        msg = `Faltan ${missingHome} jugador(es) en Equipo Local.`;
+      } else {
+        msg = `Faltan ${missingAway} jugador(es) en Equipo Rival.`;
+      }
+      throw new Error("Debes completar los 7 jugadores del Equipo Local y los 7 del Equipo Rival antes de guardar. " + msg);
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     // CRITICAL GUARD: saveMatch() via "Guardar Cambios" must ONLY update existing matches.
-    // If state.editMatch is somehow not set, recover from state.matches[0].
-    // NEVER call POST /api/matches from here — that is exclusively createNewMatch()'s job.
     if (!state.editMatch) {
       const firstMatch = state.matches[0];
       if (firstMatch) {
         state.editMatch = firstMatch.id;
         console.warn("[saveMatch] state.editMatch was null, recovered to match.id =", state.editMatch);
       } else {
-        // No match exists at all — block save
         throw new Error("No hay partido activo. Usa 'Crear Nuevo Partido' para crear uno primero.");
       }
     }
 
     // Always PUT — never POST from saveMatch()
     await api("/api/matches/" + state.editMatch, { method: "PUT", body: JSON.stringify(payload) });
-    toast("Configuración del partido guardada");
+    toast("✅ Partido guardado correctamente.");
     if(msgEl) msgEl.innerHTML = "";
     await load(false);
     render();
@@ -1362,7 +1380,7 @@ async function saveMatch(e){
     if(msgEl) msgEl.innerHTML = `<div style="background:rgba(255,0,0,0.1); border:1px solid var(--danger); color:var(--danger); padding:12px; border-radius:8px; margin-top:12px;">
       <i class="fa-solid fa-circle-exclamation"></i> ${esc(err.message)}
     </div>`;
-    else toast(err.message, true);
+    else toast("No se pudo guardar el partido: " + err.message, true);
   }
 }
 
@@ -1371,22 +1389,148 @@ async function finishMatch(matchId) {
   if (!confirm("¿Seguro que deseas finalizar el partido? Ya no se podrán cambiar los equipos y se habilitará la calificación de jugadores.")) return;
   try {
     await api(`/api/matches/${matchId}/finish`, { method: "POST" });
-    toast("Partido finalizado.");
+    toast("Partido finalizado. Abriendo pantalla de calificación...");
     await load(false);
+    // Open rating modal for all 14 players
+    showRatingModal(matchId);
     render();
   } catch (err) { toast(err.message, true); }
 }
 
-// ─── CALIFICAR JUGADOR ────────────────────────────────────────────────────────
+// ─── MODAL DE CALIFICACIÓN DE JUGADORES ──────────────────────────────────────
+function showRatingModal(matchId) {
+  const match = state.matches.find(m => m.id === matchId);
+  if (!match) return;
+
+  const allIds = [...new Set([
+    ...(match.lineup_home || []),
+    ...(match.lineup_away || [])
+  ])].filter(id => id !== null && id !== undefined);
+
+  const isAdmin = state.user.role === "ADMIN";
+  const isCap = state.user.role === "CAPTAIN";
+  const myPlayerId = Number(state.user.player_id);
+
+  if (!isAdmin && !isCap) {
+    toast("Solo el ADMIN o CAPTAIN gestor puede calificar jugadores.", true);
+    return;
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "rating-modal-overlay";
+
+  const playersHtml = allIds.map(pid => {
+    const p = player(pid);
+    if (!p) return '';
+    const teamLabel = match.lineup_home.includes(pid) ? `<span class="badge" style="background:var(--primary-glow); font-size:0.7rem;">Local</span>` : `<span class="badge" style="background:rgba(255,255,255,0.1); font-size:0.7rem;">Rival</span>`;
+    // A player cannot rate themselves
+    const isSelf = (myPlayerId === pid);
+    const canRate = !isSelf || isAdmin;
+    return `
+      <div style="display:flex; align-items:center; gap:12px; padding:10px; background:rgba(0,0,0,0.2); border-radius:10px;">
+        ${poster(p, 'sm')}
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(p.name)}</div>
+          <div style="display:flex; gap:6px; align-items:center; margin-top:4px;">${teamLabel}<span class="muted" style="font-size:0.75rem;">${esc(p.position || '')}</span></div>
+        </div>
+        ${canRate ? `
+          <select id="rating-player-${pid}" style="width:110px; padding:6px 8px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid var(--border); font-size:0.9rem;">
+            <option value="">Sin calificar</option>
+            ${[1,2,3,4,5,6,7,8,9,10].map(n => `<option value="${n}">${n} — ${{1:'Muy malo',2:'Malo',3:'Regular-',4:'Regular',5:'Regular+',6:'Bien',7:'Bueno',8:'Muy bueno',9:'Excelente',10:'Perfecto'}[n]}</option>`).join('')}
+          </select>
+        ` : `<span class="badge muted" style="font-size:0.75rem;">Tú</span>`}
+      </div>`;
+  }).join('');
+
+  overlay.innerHTML = `
+    <div class="modal-content" style="max-width:560px; width:95%">
+      <div class="modal-header">
+        <h3 style="margin:0;"><i class="fa-solid fa-star"></i> Calificar Jugadores — ${esc(match.title)}</h3>
+        <button class="btn ghost icon-btn small" onclick="closeRatingModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body" style="max-height:60vh; overflow-y:auto;">
+        <p class="muted" style="margin-bottom:16px; font-size:0.9rem;">La calificación es <strong>opcional</strong> por jugador (1 = muy malo, 10 = perfecto). Puedes dejar jugadores sin calificar.</p>
+        <div style="display:flex; flex-direction:column; gap:8px;">${playersHtml}</div>
+      </div>
+      <div class="modal-footer">
+        <p class="muted" style="font-size:0.8rem; margin:0 0 12px 0;"><i class="fa-solid fa-circle-info"></i> Jugadores sin calificar no recibirán cambios de estrellas.</p>
+        <button type="button" class="btn primary glow-on-hover" onclick="submitRatings(${matchId})" style="flex:1;"><i class="fa-solid fa-check"></i> Guardar Calificaciones</button>
+        <button type="button" class="btn ghost" onclick="closeRatingModal()" style="flex:1;">Cerrar sin calificar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => { if(e.target === overlay) closeRatingModal(); };
+}
+
+window.closeRatingModal = () => $("#rating-modal-overlay")?.remove();
+
+window.submitRatings = async (matchId) => {
+  const match = state.matches.find(m => m.id === matchId);
+  if (!match) return;
+
+  const allIds = [...new Set([
+    ...(match.lineup_home || []),
+    ...(match.lineup_away || [])
+  ])].filter(id => id !== null && id !== undefined);
+
+  const myPlayerId = Number(state.user.player_id);
+  const isAdmin = state.user.role === "ADMIN";
+
+  let saved = 0, skipped = 0, failed = 0;
+  const unratedPlayers = [];
+
+  for (const pid of allIds) {
+    const isSelf = (!isAdmin && myPlayerId === pid);
+    if (isSelf) continue;
+
+    const sel = $(`#rating-player-${pid}`);
+    if (!sel || !sel.value) { unratedPlayers.push(pid); skipped++; continue; }
+
+    const rating = Number(sel.value);
+    if (isNaN(rating) || rating < 1 || rating > 10) { skipped++; continue; }
+
+    try {
+      await api(`/api/matches/${matchId}/rate/${pid}`, { method: "POST", body: JSON.stringify({ rating }) });
+      saved++;
+    } catch (err) {
+      // If already rated, skip silently
+      if (err.message && err.message.includes("ya fue calificado")) { skipped++; }
+      else { failed++; }
+    }
+  }
+
+  closeRatingModal();
+  await load(false);
+  render();
+
+  if (unratedPlayers.length > 0) {
+    toast(`Calificaciones guardadas (${saved}). ${skipped} jugador(es) sin calificar — pueden calificarse después.`);
+  } else if (saved > 0) {
+    toast(`✅ ${saved} calificación(es) guardada(s) correctamente.`);
+  } else {
+    toast("No se guardaron calificaciones.");
+  }
+  if (failed > 0) toast(`⚠️ ${failed} calificación(es) fallaron.`, true);
+};
+
+// ─── CALIFICAR JUGADOR (individual, desde la vista de partido finalizado) ──────
 async function ratePlayer(matchId, playerId, rating) {
   if (!rating || rating < 1 || rating > 10) return toast("Calificación inválida", true);
-  if (!confirm(`¿Calificar con ${rating} a este jugador? Esta acción es irreversible para este partido.`)) return;
   try {
     await api(`/api/matches/${matchId}/rate/${playerId}`, { method: "POST", body: JSON.stringify({ rating: Number(rating) }) });
     toast("Calificación guardada.");
     await load(false);
     render();
-  } catch (err) { toast(err.message, true); }
+  } catch (err) {
+    if (err.message && err.message.includes("ya fue calificado")) {
+      toast("Este jugador ya fue calificado para este partido.", true);
+    } else {
+      toast(err.message, true);
+    }
+  }
 }
 
 // ─── CREAR PARTIDO ────────────────────────────────────────────────────────────
@@ -1720,52 +1864,89 @@ function ajustes(){
         <div id="settingsMsg" class="full"></div>
       </form>
     </article>
-    
-    </article>
   </section>`;
 }
 async function saveSettings(e){
   e.preventDefault();
   try{
     const fd = new FormData(e.currentTarget);
-    if(!fd.has('live_enabled')) fd.append('live_enabled', e.currentTarget.live_enabled.value);
-    if(!fd.has('captain_home_id')) fd.append('captain_home_id', e.currentTarget.captain_home_id.value);
-    if(!fd.has('captain_away_id')) fd.append('captain_away_id', e.currentTarget.captain_away_id.value);
-    if(!fd.has('app_theme')) fd.append('app_theme', e.currentTarget.app_theme.value);
+    const form = e.currentTarget;
+
+    // live_enabled: read safely with fallback
+    if(!fd.has('live_enabled')) {
+      const liveEl = form.elements['live_enabled'];
+      fd.append('live_enabled', liveEl ? liveEl.value : '0');
+    }
+    // app_theme: read safely with fallback
+    if(!fd.has('app_theme')) {
+      const themeEl = form.elements['app_theme'];
+      fd.append('app_theme', themeEl ? themeEl.value : 'dark');
+    }
+    // captain_home_id / captain_away_id are NOT in this form; pass stored values
+    const s = state.settings || {};
+    fd.set('captain_home_id', s.captain_home_id || '');
+    fd.set('captain_away_id', s.captain_away_id || '');
     
     // Clear bg color if user clicked "Borrar"
-    if (e.currentTarget.app_bg_color.dataset.cleared === '1') {
+    const bgEl = form.elements['app_bg_color'];
+    if (bgEl && bgEl.dataset.cleared === '1') {
       fd.set('app_bg_color', '');
-      e.currentTarget.app_bg_color.dataset.cleared = '0';
+      bgEl.dataset.cleared = '0';
     }
     
     await api("/api/settings",{method:"POST",body:JSON.stringify(Object.fromEntries(fd.entries()))});
     toast("Ajustes guardados. Actualizando en tiempo real..."); 
-  }catch(err){ $("#settingsMsg").innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`; }
+  }catch(err){ 
+    const msgEl = $("#settingsMsg");
+    if(msgEl) msgEl.innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`;
+    else toast("Error guardando ajustes", true);
+  }
 }
 async function saveVideo(e){
   e.preventDefault();
-  try{ await api("/api/videos",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(e.currentTarget).entries()))}); e.target.reset(); toast("Video guardado"); }
+  const fd = new FormData(e.currentTarget);
+  const matchId = fd.get('match_id');
+  if (!matchId || matchId === '') {
+    $("#videoMsg").innerHTML = `<div style="color:var(--danger)"><i class="fa-solid fa-circle-exclamation"></i> Selecciona un partido antes de guardar el video.</div>`;
+    return;
+  }
+  try{
+    await api("/api/videos",{method:"POST",body:JSON.stringify(Object.fromEntries(fd.entries()))});
+    e.target.reset();
+    $("#videoMsg").innerHTML = `<div style="color:var(--success)"><i class="fa-solid fa-circle-check"></i> Video guardado correctamente.</div>`;
+    toast("Video guardado");
+    await load(false);
+    render();
+  }
   catch(err){ $("#videoMsg").innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`; }
 }
 async function saveHighlight(e){
   e.preventDefault();
+  const form = e.currentTarget;
+  const matchIdVal = form.match_id ? form.match_id.value : '';
+  if (!matchIdVal || matchIdVal === '') {
+    $("#highlightMsg").innerHTML = `<div style="color:var(--danger)"><i class="fa-solid fa-circle-exclamation"></i> Selecciona un partido antes de guardar el momento.</div>`;
+    return;
+  }
   try{
-    const form = e.currentTarget;
+    // NOTE: no enviamos campo 'minute' — no existe en el form ni en el payload
     const body = {
-      title: form.title.value,
-      description: form.description.value,
-      moment_type: form.moment_type.value,
-      match_id: form.match_id.value ? Number(form.match_id.value) : null,
-      media_path: form.media_path.value,
-      media_type: form.media_type.value
+      title: form.elements['title'] ? form.elements['title'].value : '',
+      description: form.elements['description'] ? form.elements['description'].value : '',
+      moment_type: form.elements['moment_type'] ? form.elements['moment_type'].value : 'otro',
+      match_id: Number(matchIdVal),
+      media_path: form.elements['media_path'] ? form.elements['media_path'].value : '',
+      media_type: form.elements['media_type'] ? form.elements['media_type'].value : 'image',
+      player_id: form.elements['player_id'] && form.elements['player_id'].value ? Number(form.elements['player_id'].value) : null
     };
     
     $("#highlightMsg").innerHTML = `<div class="muted"><i class="fa-solid fa-spinner fa-spin"></i> Guardando...</div>`;
     await api("/api/highlights",{method:"POST",body:JSON.stringify(body)});
     form.reset();
     toast("Momento guardado"); 
-    $("#highlightMsg").innerHTML = "";
+    $("#highlightMsg").innerHTML = `<div style="color:var(--success)"><i class="fa-solid fa-circle-check"></i> Momento guardado correctamente.</div>`;
+    await load(false);
+    render();
   }catch(err){ $("#highlightMsg").innerHTML = `<div style="color:var(--danger)">${esc(err.message)}</div>`; }
 }
 async function del(table,id,section){

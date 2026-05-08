@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 from flask import Flask, request, jsonify, send_from_directory, send_file
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
 
 from app.db import UPLOAD_DIR, connect, init_db, parse_json_list
@@ -1063,9 +1063,12 @@ def create_video():
     user, err, code = require_roles({"ADMIN"})
     if not user: return err, code
     b = request.get_json() or {}
+    match_id = safe_int(b.get("match_id"), 0) or None
+    if not match_id:
+        return jsonify({"error": "Selecciona un partido antes de guardar el video."}), 400
     conn = connect(); cur = conn.cursor()
     cur.execute("INSERT INTO videos (title, platform, url, category, match_id) VALUES (?, ?, ?, ?, ?)",
-                ((b.get("title") or "Video").strip(), (b.get("platform") or "youtube").strip(), (b.get("url") or "").strip(), (b.get("category") or "resumen").strip(), safe_int(b.get("match_id"), 0) or None))
+                ((b.get("title") or "Video").strip(), (b.get("platform") or "youtube").strip(), (b.get("url") or "").strip(), (b.get("category") or "resumen").strip(), match_id))
     conn.commit(); row = conn.execute("SELECT * FROM videos WHERE id=?", (cur.lastrowid,)).fetchone(); conn.close()
     socketio.emit("data_changed", {"type": "videos"})
     return jsonify(row), 201
@@ -1091,10 +1094,15 @@ def create_highlight():
     user, err, code = require_roles({"ADMIN"})
     if not user: return err, code
     b = request.get_json() or {}
+    match_id = safe_int(b.get("match_id"), 0) or None
+    if not match_id:
+        return jsonify({"error": "Selecciona un partido antes de guardar el momento."}), 400
     conn = connect(); cur = conn.cursor()
-    cur.execute("INSERT INTO highlights (title, minute, description, media_path, media_type, moment_type, match_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                ((b.get("title") or "Momento").strip(), (b.get("minute") or "").strip(), (b.get("description") or "").strip(),
-                 (b.get("media_path") or "").strip(), (b.get("media_type") or "").strip(), (b.get("moment_type") or "otro").strip(), safe_int(b.get("match_id"), 0) or None))
+    # 'minute' field is intentionally excluded — not used in this system
+    cur.execute("INSERT INTO highlights (title, description, media_path, media_type, moment_type, match_id, player_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ((b.get("title") or "Momento").strip(), (b.get("description") or "").strip(),
+                 (b.get("media_path") or "").strip(), (b.get("media_type") or "").strip(), (b.get("moment_type") or "otro").strip(), match_id,
+                 safe_int(b.get("player_id"), 0) or None))
     conn.commit(); row = conn.execute("SELECT * FROM highlights WHERE id=?", (cur.lastrowid,)).fetchone(); conn.close()
     socketio.emit("data_changed", {"type": "highlights"})
     return jsonify(row), 201
